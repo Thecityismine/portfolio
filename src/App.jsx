@@ -1,11 +1,8 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, BarChart, Bar } from "recharts";
 
-// ─── LIVE PRICES (placeholder — replace with API) ────────────────────────────
-const BTC_PRICE = 108000;
-const ETH_PRICE = 2400;
-const ADA_PRICE = 0.35;
-const COIN_PRICES = {
+// ─── STATIC FALLBACK PRICES (used when CMC API key is not set) ───────────────
+const STATIC_PRICES = {
   // Core coins
   BTC:108000, ETH:2098.18, ADA:0.2664, LTC:55.27, EOS:0.70,
   ZEC:28, BAT:0.1010, DOT:1.47, CRV:0.2384, ALGO:0.12,
@@ -1812,6 +1809,33 @@ export default function CryptoApp() {
   const [page, setPage] = useState("home");
   const [anthropicKey, setAnthropicKey] = useState(() => localStorage.getItem("anthropic_key") || "");
   const [cmcKey, setCmcKey] = useState(() => localStorage.getItem("cmc_key") || "");
+  const [livePrices, setLivePrices] = useState({});
+  const [priceStatus, setPriceStatus] = useState("static"); // "static" | "loading" | "live" | "error"
+
+  useEffect(() => {
+    if (!cmcKey) { setLivePrices({}); setPriceStatus("static"); return; }
+    let cancelled = false;
+    const fetchPrices = async () => {
+      setPriceStatus("loading");
+      try {
+        const res = await fetch("/api/prices", { headers: { "x-cmc-key": cmcKey } });
+        if (cancelled) return;
+        if (!res.ok) { setPriceStatus("error"); return; }
+        const data = await res.json();
+        if (data.error) { setPriceStatus("error"); return; }
+        setLivePrices(data);
+        setPriceStatus("live");
+      } catch { if (!cancelled) setPriceStatus("error"); }
+    };
+    fetchPrices();
+    const interval = setInterval(fetchPrices, 5 * 60 * 1000); // refresh every 5 min
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [cmcKey]);
+
+  // Merge static fallback with live prices — live values win
+  const COIN_PRICES = { ...STATIC_PRICES, ...livePrices };
+  const BTC_PRICE = COIN_PRICES.BTC || 108000;
+  const ETH_PRICE = COIN_PRICES.ETH || 2400;
   const [selectedMember, setSelectedMember] = useState(null);
   const [selectedCoin, setSelectedCoin] = useState(null);   // coin detail page
   const [coinPage, setCoinPage] = useState("detail");        // "detail" | "transactions"
@@ -2262,8 +2286,12 @@ export default function CryptoApp() {
             : "Transactions"}
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-          <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#00e676", boxShadow: "0 0 8px #00e676" }} />
-          <span style={{ fontSize: 12, fontWeight: 500, color: "#00e676" }}>LIVE</span>
+          <div style={{ width: 7, height: 7, borderRadius: "50%",
+            background: priceStatus === "live" ? "#00e676" : priceStatus === "loading" ? "#f7931a" : priceStatus === "error" ? "#ff4444" : "#555",
+            boxShadow: priceStatus === "live" ? "0 0 8px #00e676" : "none" }} />
+          <span style={{ fontSize: 12, fontWeight: 500, color: priceStatus === "live" ? "#00e676" : priceStatus === "loading" ? "#f7931a" : priceStatus === "error" ? "#ff4444" : "#555" }}>
+            {priceStatus === "live" ? "LIVE" : priceStatus === "loading" ? "SYNCING" : priceStatus === "error" ? "ERROR" : "STATIC"}
+          </span>
         </div>
       </div>
 
@@ -3477,7 +3505,9 @@ export default function CryptoApp() {
                 style={{ width: "100%", background: "#111", border: "1px solid #1a3a2a", borderRadius: 8, color: "#ccc", fontSize: 12, padding: "10px 12px", boxSizing: "border-box", outline: "none", fontFamily: "monospace" }}
               />
               {cmcKey
-                ? <div style={{ fontSize: 11, color: "#00e676", marginTop: 6 }}>✓ Key saved — {cmcKey.slice(0, 12)}...</div>
+                ? <div style={{ fontSize: 11, color: priceStatus === "live" ? "#00e676" : priceStatus === "error" ? "#ff4444" : "#f7931a", marginTop: 6 }}>
+                    {priceStatus === "live" ? `✓ Connected — prices live` : priceStatus === "loading" ? "⟳ Fetching prices..." : priceStatus === "error" ? "✗ API error — check key" : `✓ Key saved — ${cmcKey.slice(0, 12)}...`}
+                  </div>
                 : <div style={{ fontSize: 11, color: "#555", marginTop: 6 }}>No key set. Get one at coinmarketcap.com/api</div>}
               {cmcKey && (
                 <button onClick={() => { setCmcKey(""); localStorage.removeItem("cmc_key"); }}
@@ -3501,7 +3531,7 @@ export default function CryptoApp() {
               <div style={{ padding: "12px 16px", borderBottom: "1px solid #161616" }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: "#444", letterSpacing: "0.08em", textTransform: "uppercase" }}>Display</div>
               </div>
-              {[["Theme","Dark"],["Currency","USD"],["BTC Goal","5.0 BTC"],["Price Source","Static (CoinMarketCap soon)"]].map(([k,v],i,a)=>(
+              {[["Theme","Dark"],["Currency","USD"],["BTC Goal","5.0 BTC"],["Price Source", priceStatus === "live" ? "CoinMarketCap Live" : "Static Fallback"]].map(([k,v],i,a)=>(
                 <div key={k} style={{ display:"flex", justifyContent:"space-between", padding:"11px 16px", borderBottom:i<a.length-1?"1px solid #0e0e0e":"none" }}>
                   <span style={{ fontSize:12, color:"#666" }}>{k}</span>
                   <span style={{ fontSize:12, fontWeight:600, color:"#aaa" }}>{v}</span>
