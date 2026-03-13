@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, BarChart, Bar } from "recharts";
-import { collection, addDoc, deleteDoc, updateDoc, doc, onSnapshot, query, orderBy, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, deleteDoc, updateDoc, doc, setDoc, onSnapshot, query, orderBy, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
 
 // ─── STATIC FALLBACK PRICES (used when CMC API key is not set) ───────────────
@@ -1239,7 +1239,22 @@ function mergeChartWithBenchmark(main, bench) {
   return main.map((d, i) => ({ ...d, bv: bench[i]?.bv ?? null }));
 }
 
-const familyChartData = generateChartData(341000);
+// Convert Firestore snapshots → chart format { t, v, label }
+// getValue(snap) extracts the numeric value from a snapshot doc
+function snapshotsToChart(snapshots, range, getValue) {
+  if (!snapshots || snapshots.length === 0) return null;
+  const msBack = { "7D": 7, "1W": 7, "1M": 30, "3M": 90, "YTD": 365, "1Y": 365, "ALL": 365 * 10 }[range] ?? 365 * 10;
+  const cutoff = Date.now() - msBack * 86400000;
+  const filtered = snapshots
+    .filter(s => new Date(s.date).getTime() >= cutoff)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (filtered.length < 2) return null;
+  return filtered.map((s, i) => {
+    const d = new Date(s.date + "T12:00:00");
+    const label = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    return { t: i, v: Math.round(getValue(s) * 100) / 100, label };
+  });
+}
 
 const diversityData = [
   { name: "BTC", value: 68, color: "#f7931a" },
@@ -1875,6 +1890,18 @@ export default function CryptoApp() {
     return () => unsub();
   }, []);
 
+  // Portfolio snapshots — one document per day keyed by date string
+  const [snapshots, setSnapshots] = useState([]);
+  useEffect(() => {
+    const q = query(collection(db, "snapshots"), orderBy("date", "asc"));
+    const unsub = onSnapshot(q, snap => {
+      setSnapshots(snap.docs.map(d => d.data()));
+    }, err => console.error("Snapshots listener error:", err));
+    return () => unsub();
+  }, []);
+
+  const snappedTodayRef = useRef(false);
+
   // Form state for Add Transaction modal
   const today = new Date().toISOString().split("T")[0];
   const [txForm, setTxForm] = useState({
@@ -2001,8 +2028,39 @@ export default function CryptoApp() {
   const totalCostBasis = MEMBERS.reduce((s, m) => s + m.costBasis, 0);
   const totalUnrealized = MEMBERS.reduce((s, m) => s + m.unrealizedPL, 0);
 
+  // Write one snapshot per day when prices are live and Firestore is ready
+  useEffect(() => {
+    if (!firestoreReady || totalUSD <= 0 || snappedTodayRef.current) return;
+    const todayStr = new Date().toISOString().split("T")[0];
+    const lastSnap = localStorage.getItem("last_snapshot_date");
+    if (lastSnap === todayStr) { snappedTodayRef.current = true; return; }
+    snappedTodayRef.current = true;
+    const memberValues = {};
+    MEMBERS.forEach(m => { memberValues[m.id] = Math.round(m.usd * 100) / 100; });
+    setDoc(doc(db, "snapshots", todayStr), {
+      date: todayStr,
+      totalUSD: Math.round(totalUSD * 100) / 100,
+      members: memberValues,
+      timestamp: serverTimestamp(),
+    }).then(() => {
+      localStorage.setItem("last_snapshot_date", todayStr);
+    }).catch(err => {
+      snappedTodayRef.current = false;
+      console.error("Snapshot write error:", err);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firestoreReady, totalUSD]);
+
+  // Computed chart data from real snapshots (falls back to synthetic when < 2 real points)
+  const familyChartData =
+    snapshotsToChart(snapshots, homeChartRange, s => s.totalUSD) ||
+    generateChartData(totalUSD || 341000, homeChartRange);
+
   const member = selectedMember ? MEMBERS.find(m => m.id === selectedMember) : null;
-  const memberChart = member ? generateChartData(member.usd) : [];
+  const memberChart = member
+    ? (snapshotsToChart(snapshots, memberChartRange, s => s.members?.[member.id] ?? 0) ||
+       generateChartData(member.usd))
+    : [];
   const memberTxs = TRANSACTIONS.filter(t => t.member === member?.id);
   const filteredTxs = (txFilter === "all" ? TRANSACTIONS : TRANSACTIONS.filter(t => t.member === txFilter))
     .slice().sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -2775,7 +2833,7 @@ export default function CryptoApp() {
               </div>
               <div className="chart-bg">
                 <ResponsiveContainer width="100%" height={160}>
-                  <AreaChart data={generateChartData(341000, homeChartRange)} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
+                  <AreaChart data={familyChartData} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
                     <defs>
                       <linearGradient id="gGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="#00e676" stopOpacity={0.3} />
@@ -3094,7 +3152,9 @@ export default function CryptoApp() {
 
               {/* ── PORTFOLIO GROWTH CHART + BENCHMARKS ── */}
               {(() => {
-                const mainData = generateChartData(member.usd, memberChartRange);
+                const mainData =
+                  snapshotsToChart(snapshots, memberChartRange, s => s.members?.[member.id] ?? 0) ||
+                  generateChartData(member.usd, memberChartRange);
                 const btcBench = generateBenchmarkData(member.usd, memberChartRange, 0.92);
                 const spyBench = generateBenchmarkData(member.usd, memberChartRange, 0.35);
                 const merged = mainData.map((d, i) => ({
@@ -3631,7 +3691,7 @@ export default function CryptoApp() {
               <div style={{ fontSize: 13, fontWeight: 500, color: "#666", marginBottom: 10 }}>Balance History</div>
               <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "12px 8px 8px" }}>
                 <ResponsiveContainer width="100%" height={130}>
-                  <AreaChart data={familyChartData}>
+                  <AreaChart data={snapshotsToChart(snapshots, "ALL", s => s.members?.[member?.id] ?? 0) || generateChartData(member?.usd || 0, "ALL")}>
                     <defs>
                       <linearGradient id="iGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="#f7931a" stopOpacity={0.3} />
