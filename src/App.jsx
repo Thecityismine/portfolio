@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, BarChart, Bar } from "recharts";
-import { collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, deleteDoc, updateDoc, doc, onSnapshot, query, orderBy, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
 
 // ─── STATIC FALLBACK PRICES (used when CMC API key is not set) ───────────────
@@ -1921,6 +1921,57 @@ export default function CryptoApp() {
     setTxSubmitting(false);
   }
 
+  // ── EDIT TRANSACTION ────────────────────────────────────────────────────────
+  const [editingTx, setEditingTx] = useState(null); // null = closed, or the tx object
+  const [editForm, setEditForm] = useState({});
+  const [editFormError, setEditFormError] = useState("");
+  const [editSubmitting, setEditSubmitting] = useState(false);
+
+  function openEdit(tx) {
+    setEditForm({
+      member: tx.member,
+      coin: tx.coin,
+      type: tx.type,
+      qty: tx.qty.toString(),
+      price: tx.purchasePrice.toString(),
+      date: tx.date,
+      exchange: tx.exchange || "Other",
+      notes: tx.notes || "",
+    });
+    setEditFormError("");
+    setEditingTx(tx);
+    setTxOptionsOpen(null);
+  }
+
+  function setEditField(field, value) {
+    setEditForm(f => ({ ...f, [field]: value }));
+  }
+
+  async function submitEdit() {
+    if (!editForm.qty || parseFloat(editForm.qty) <= 0) return setEditFormError("Enter a valid quantity.");
+    if (!editForm.date) return setEditFormError("Select a date.");
+    setEditSubmitting(true);
+    const qty = parseFloat(editForm.qty);
+    const price = parseFloat(editForm.price) || 0;
+    try {
+      await updateDoc(doc(db, "transactions", editingTx.id), {
+        member: editForm.member,
+        coin: editForm.coin,
+        type: editForm.type,
+        qty,
+        purchasePrice: price,
+        usdTotal: parseFloat((qty * price).toFixed(2)),
+        date: editForm.date,
+        exchange: editForm.exchange,
+        notes: editForm.notes,
+      });
+      setEditingTx(null);
+    } catch (err) {
+      setEditFormError("Failed to save: " + err.message);
+    }
+    setEditSubmitting(false);
+  }
+
   // Combined transaction list: hardcoded history + Firestore-persisted new entries
   const TRANSACTIONS = [...HARDCODED_TRANSACTIONS, ...firestoreTxs];
 
@@ -2398,13 +2449,22 @@ export default function CryptoApp() {
             <div className="options-sheet-title">Transaction Options</div>
 
             {/* Edit */}
-            <button className="options-sheet-row" onClick={() => setTxOptionsOpen(null)}>
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-              </svg>
-              <span style={{ fontSize: 20, fontWeight: 600, color: "#fff" }}>Edit Transaction</span>
-            </button>
+            {(() => {
+              const tx = TRANSACTIONS.find(t => t.id === txOptionsOpen);
+              const isFirestore = typeof txOptionsOpen === "string";
+              return (
+                <button className="options-sheet-row" onClick={() => isFirestore && tx ? openEdit(tx) : setTxOptionsOpen(null)}
+                  style={{ opacity: isFirestore ? 1 : 0.4 }}>
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                  </svg>
+                  <span style={{ fontSize: 20, fontWeight: 600, color: "#fff" }}>
+                    {isFirestore ? "Edit Transaction" : "Cannot Edit (Historical)"}
+                  </span>
+                </button>
+              );
+            })()}
 
             {/* Divider */}
             <div style={{ height: 1, background: "#3a3a3a", margin: "0 24px" }} />
@@ -2436,6 +2496,117 @@ export default function CryptoApp() {
           </div>
         </>
       )}
+
+      {/* EDIT TRANSACTION MODAL */}
+      {editingTx && (() => {
+        const allCoins = Object.keys(STATIC_PRICES).sort();
+        const qty = parseFloat(editForm.qty) || 0;
+        const price = parseFloat(editForm.price) || 0;
+        const totalCost = qty * price;
+        const currentVal = qty * (COIN_PRICES[editForm.coin] || 0);
+        const unrealized = editForm.type === "buy" ? currentVal - totalCost : 0;
+        return (
+          <>
+            <div className="overlay" onClick={() => setEditingTx(null)} />
+            <div className="modal">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                <span style={{ fontWeight: 700, fontSize: 18 }}>Edit Transaction</span>
+                <button style={{ background: "none", border: "none", color: "#666", cursor: "pointer", fontSize: 20 }} onClick={() => setEditingTx(null)}>✕</button>
+              </div>
+
+              <div style={{ display: "grid", gap: 13 }}>
+                {/* Portfolio */}
+                <div>
+                  <div className="lbl" style={{ marginBottom: 6 }}>Portfolio</div>
+                  <select value={editForm.member} onChange={e => setEditField("member", e.target.value)}>
+                    {MEMBERS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
+                </div>
+
+                {/* Type toggle */}
+                <div>
+                  <div className="lbl" style={{ marginBottom: 6 }}>Type</div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {["buy", "sell"].map(t => (
+                      <button key={t} onClick={() => setEditField("type", t)}
+                        style={{ flex: 1, padding: "9px", borderRadius: 10, border: "none", fontWeight: 700, fontSize: 13, cursor: "pointer",
+                          background: editForm.type === t ? (t === "buy" ? "#00e676" : "#ff4444") : "#1a1a1a",
+                          color: editForm.type === t ? "#000" : "#555" }}>
+                        {t === "buy" ? "⬆ Buy" : "⬇ Sell"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Coin + Exchange */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div>
+                    <div className="lbl" style={{ marginBottom: 6 }}>Coin</div>
+                    <select value={editForm.coin} onChange={e => setEditField("coin", e.target.value)}>
+                      {allCoins.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <div className="lbl" style={{ marginBottom: 6 }}>Exchange</div>
+                    <select value={editForm.exchange} onChange={e => setEditField("exchange", e.target.value)}>
+                      {["Coinbase","Kraken","Gemini","Binance","iTrust","Robinhood","Hardware Wallet","Transfer","Other"].map(ex => (
+                        <option key={ex} value={ex}>{ex}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Qty + Price */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div>
+                    <div className="lbl" style={{ marginBottom: 6 }}>Quantity</div>
+                    <input type="number" min="0" step="any" value={editForm.qty}
+                      onChange={e => setEditField("qty", e.target.value)} />
+                  </div>
+                  <div>
+                    <div className="lbl" style={{ marginBottom: 6 }}>Price (USD)</div>
+                    <input type="number" min="0" step="any" value={editForm.price}
+                      onChange={e => setEditField("price", e.target.value)} />
+                  </div>
+                </div>
+
+                {/* Date */}
+                <div>
+                  <div className="lbl" style={{ marginBottom: 6 }}>Date</div>
+                  <input type="date" value={editForm.date} onChange={e => setEditField("date", e.target.value)} />
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <div className="lbl" style={{ marginBottom: 6 }}>Notes / Tags</div>
+                  <input placeholder="DCA, gift, staking reward..." value={editForm.notes}
+                    onChange={e => setEditField("notes", e.target.value)} />
+                </div>
+
+                {/* Live P&L preview */}
+                {qty > 0 && price > 0 && (
+                  <div style={{ background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: 10, padding: "12px 14px" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                      <div><div style={{ fontSize: 10, color: "#555", marginBottom: 3 }}>Total Cost</div><div style={{ fontSize: 13, fontWeight: 700, color: "#ccc" }}>${totalCost.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div></div>
+                      <div><div style={{ fontSize: 10, color: "#555", marginBottom: 3 }}>Current Val</div><div style={{ fontSize: 13, fontWeight: 700, color: "#ccc" }}>${currentVal.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div></div>
+                      <div><div style={{ fontSize: 10, color: "#555", marginBottom: 3 }}>Unrealized</div><div style={{ fontSize: 13, fontWeight: 700, color: unrealized >= 0 ? "#00e676" : "#ff4444" }}>{unrealized >= 0 ? "+" : ""}${unrealized.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div></div>
+                    </div>
+                  </div>
+                )}
+
+                {editFormError && <div style={{ fontSize: 12, color: "#ff4444", textAlign: "center" }}>{editFormError}</div>}
+
+                <button onClick={submitEdit} disabled={editSubmitting}
+                  style={{ width: "100%", padding: "13px", borderRadius: 10, border: "none", fontWeight: 700, fontSize: 14,
+                    cursor: editSubmitting ? "not-allowed" : "pointer", opacity: editSubmitting ? 0.6 : 1,
+                    background: editForm.type === "buy" ? "#00e676" : "#ff4444", color: "#000" }}>
+                  {editSubmitting ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* TOP BAR */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px 10px", position: "sticky", top: 0, background: "#080808", zIndex: 50, borderBottom: "1px solid #141414" }}>
