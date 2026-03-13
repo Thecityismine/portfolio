@@ -26,7 +26,7 @@ const STATIC_PRICES = {
 };
 
 // ─── MEMBERS — populated from Delta CSV exports ────────────────────────────
-const MEMBERS = [
+const STATIC_MEMBERS = [
   {
     id: "anseli", name: "Anseli Medina", avatar: "AM",
     btc: 0.12193865, eth: 0.87981231, ada: 0,
@@ -1855,6 +1855,14 @@ export default function CryptoApp() {
   const [coinChartRange, setCoinChartRange] = useState("ALL");
   const [memberBenchmark, setMemberBenchmark] = useState("portfolio"); // "portfolio" | "btc" | "spy"
   const sliderRef = useRef(null);
+
+  // Recompute each member's USD value and unrealized P&L from holdings × live prices
+  const MEMBERS = STATIC_MEMBERS.map(m => {
+    const liveUsd = Object.entries(m.holdings || {}).reduce(
+      (sum, [coin, qty]) => sum + qty * (COIN_PRICES[coin] || 0), 0
+    );
+    return { ...m, usd: liveUsd, unrealizedPL: liveUsd - m.costBasis };
+  });
 
   const totalUSD = MEMBERS.reduce((s, m) => s + m.usd, 0);
   const totalBTC = MEMBERS.reduce((s, m) => s + m.btc, 0);
