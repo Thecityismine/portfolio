@@ -1811,6 +1811,7 @@ function TaxPage({ fmtFull, TRANSACTIONS, MEMBERS, COIN_PRICES, anthropicKey: gl
 export default function CryptoApp() {
   const [page, setPage] = useState("home");
   const [anthropicKey, setAnthropicKey] = useState(() => localStorage.getItem("anthropic_key") || "");
+  const [cmcKey, setCmcKey] = useState(() => localStorage.getItem("cmc_key") || "");
   const [selectedMember, setSelectedMember] = useState(null);
   const [selectedCoin, setSelectedCoin] = useState(null);   // coin detail page
   const [coinPage, setCoinPage] = useState("detail");        // "detail" | "transactions"
@@ -2050,23 +2051,23 @@ export default function CryptoApp() {
                 {
                   section: "Portfolio",
                   items: [
-                    { label: "New Portfolio", sub: "Add a family member", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9.5" y1="14.5" x2="14.5" y2="14.5"/></svg> },
-                    { label: "Manage Assets", sub: "Coins & holdings", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="6"/><ellipse cx="12" cy="17" rx="8" ry="3"/><path d="M4 17v3c0 1.66 3.58 3 8 3s8-1.34 8-3v-3"/></svg> },
-                    { label: "Set Goals", sub: "BTC targets per member", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/></svg> },
+                    { label: "New Portfolio", sub: "Add a family member", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9.5" y1="14.5" x2="14.5" y2="14.5"/></svg>, action: () => { setPage("portfolios"); setMenuOpen(false); } },
+                    { label: "Manage Assets", sub: "Coins & holdings", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="6"/><ellipse cx="12" cy="17" rx="8" ry="3"/><path d="M4 17v3c0 1.66 3.58 3 8 3s8-1.34 8-3v-3"/></svg>, action: () => { setPage("portfolios"); setMenuOpen(false); } },
+                    { label: "Set Goals", sub: "BTC targets per member", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/></svg>, action: () => { setPage("home"); setMenuOpen(false); } },
                   ]
                 },
                 {
                   section: "Data",
                   items: [
-                    { label: "Import Transactions", sub: "CSV or Delta export", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> },
-                    { label: "Export Data", sub: "Download as CSV", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> },
+                    { label: "Import Transactions", sub: "CSV or Delta export", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>, action: () => { setPage("transactions"); setMenuOpen(false); } },
+                    { label: "Export Data", sub: "Download as CSV", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>, action: () => { setPage("transactions"); setMenuOpen(false); } },
                   ]
                 },
                 {
                   section: "Connections",
                   items: [
-                    { label: "CoinMarketCap API", sub: "Live price feed", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11A2.99 2.99 0 0 0 18 7.92a3 3 0 1 0-3-3c0 .24.04.47.09.7L8.04 9.73A3 3 0 0 0 6 9a3 3 0 0 0 0 6c.78 0 1.49-.31 2.04-.78l7.05 4.12c-.05.21-.09.43-.09.66a3 3 0 1 0 3-3z"/></svg>, badge: "Not connected", badgeColor: "#f7931a" },
-                    { label: "Exchange Sync", sub: "Coinbase · Kraken · Gemini", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>, badge: "Manual", badgeColor: "#555" },
+                    { label: "CoinMarketCap API", sub: "Live price feed", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11A2.99 2.99 0 0 0 18 7.92a3 3 0 1 0-3-3c0 .24.04.47.09.7L8.04 9.73A3 3 0 0 0 6 9a3 3 0 0 0 0 6c.78 0 1.49-.31 2.04-.78l7.05 4.12c-.05.21-.09.43-.09.66a3 3 0 1 0 3-3z"/></svg>, badge: cmcKey ? "Connected" : "Not connected", badgeColor: cmcKey ? "#00e676" : "#f7931a", action: () => { setPage("app-settings"); setMenuOpen(false); } },
+                    { label: "Exchange Sync", sub: "Coinbase · Kraken · Gemini", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>, badge: "Manual", badgeColor: "#555", action: () => { setPage("app-settings"); setMenuOpen(false); } },
                   ]
                 },
                 {
@@ -3460,6 +3461,26 @@ export default function CryptoApp() {
                 : <div style={{ fontSize: 11, color: "#555", marginTop: 6 }}>No key set. Get one at console.anthropic.com</div>}
               {anthropicKey && (
                 <button onClick={() => { setAnthropicKey(""); localStorage.removeItem("anthropic_key"); }}
+                  style={{ marginTop: 10, background: "none", border: "1px solid #333", borderRadius: 7, color: "#555", fontSize: 11, padding: "5px 12px", cursor: "pointer" }}>
+                  Clear Key
+                </button>
+              )}
+            </div>
+            <div style={{ background: "#0d1414", border: "1px solid #1a3a2a", borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#00e676", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>CoinMarketCap API Key</div>
+              <div style={{ fontSize: 11, color: "#555", marginBottom: 10, lineHeight: 1.5 }}>Used for live price data. Saved to browser localStorage — never sent anywhere except directly to CoinMarketCap's API.</div>
+              <input
+                type="password"
+                value={cmcKey}
+                onChange={e => { setCmcKey(e.target.value); localStorage.setItem("cmc_key", e.target.value); }}
+                placeholder="Enter CoinMarketCap API key..."
+                style={{ width: "100%", background: "#111", border: "1px solid #1a3a2a", borderRadius: 8, color: "#ccc", fontSize: 12, padding: "10px 12px", boxSizing: "border-box", outline: "none", fontFamily: "monospace" }}
+              />
+              {cmcKey
+                ? <div style={{ fontSize: 11, color: "#00e676", marginTop: 6 }}>✓ Key saved — {cmcKey.slice(0, 12)}...</div>
+                : <div style={{ fontSize: 11, color: "#555", marginTop: 6 }}>No key set. Get one at coinmarketcap.com/api</div>}
+              {cmcKey && (
+                <button onClick={() => { setCmcKey(""); localStorage.removeItem("cmc_key"); }}
                   style={{ marginTop: 10, background: "none", border: "1px solid #333", borderRadius: 7, color: "#555", fontSize: 11, padding: "5px 12px", cursor: "pointer" }}>
                   Clear Key
                 </button>
