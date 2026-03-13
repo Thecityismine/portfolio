@@ -1405,17 +1405,17 @@ function runFifo(transactions, member, taxYear, currentPrices) {
 
 // ─── TAX PAGE COMPONENT ───────────────────────────────────────────────────────
 function TaxPage({ fmtFull, TRANSACTIONS, MEMBERS, COIN_PRICES, anthropicKey: globalApiKey }) {
-  const [taxYear, setTaxYear] = React.useState("2026");
-  const [member, setMember] = React.useState("jorge");
-  const [tab, setTab] = React.useState("summary");
-  const [filt, setFilt] = React.useState("all");
-  const [exp, setExp] = React.useState(null);
-  const [apiKey, setApiKey] = React.useState(globalApiKey || "");
-  const [aiSummary, setAiSummary] = React.useState("");
-  const [aiLoading, setAiLoading] = React.useState(false);
-  const [aiError, setAiError] = React.useState("");
-  const [computed, setComputed] = React.useState(null);
-  const [computing, setComputing] = React.useState(false);
+  const [taxYear, setTaxYear] = useState("2026");
+  const [member, setMember] = useState("jorge");
+  const [tab, setTab] = useState("summary");
+  const [filt, setFilt] = useState("all");
+  const [exp, setExp] = useState(null);
+  const [apiKey, setApiKey] = useState(globalApiKey || "");
+  const [aiSummary, setAiSummary] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [computed, setComputed] = useState(null);
+  const [computing, setComputing] = useState(false);
 
   const YEARS = ["2024","2025","2026"];
   const CC = {BTC:"#f7931a",ETH:"#627eea",XRP:"#00aae4",ADA:"#0033ad",CRV:"#e64980",
