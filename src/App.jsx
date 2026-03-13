@@ -126,7 +126,7 @@ const STATIC_MEMBERS = [
 ];
 
 // ─── TRANSACTIONS — 132 entries from all 8 CSV files ─────────────────────
-const TRANSACTIONS = [
+const HARDCODED_TRANSACTIONS = [
   // ANSELI (21)
   {id:1,member:"anseli",coin:"ETH",type:"buy",qty:0.38270188,purchasePrice:1045.20,usdTotal:400.00,date:"2018-01-09",exchange:"Coinbase",fee:0},
   {id:2,member:"anseli",coin:"LTC",type:"buy",qty:0.18783,purchasePrice:0,usdTotal:0,date:"2018-09-13",exchange:"Transfer",fee:0},
@@ -1856,12 +1856,72 @@ export default function CryptoApp() {
   const [memberBenchmark, setMemberBenchmark] = useState("portfolio"); // "portfolio" | "btc" | "spy"
   const sliderRef = useRef(null);
 
-  // Recompute each member's USD value and unrealized P&L from holdings × live prices
+  // User-added transactions (on top of the hardcoded historical data)
+  const [userTransactions, setUserTransactions] = useState([]);
+
+  // Form state for Add Transaction modal
+  const today = new Date().toISOString().split("T")[0];
+  const [txForm, setTxForm] = useState({
+    member: "", coin: "BTC", type: "buy", qty: "", price: "", date: today, exchange: "Coinbase", notes: "",
+  });
+  const [txFormError, setTxFormError] = useState("");
+
+  function setTxField(field, value) {
+    setTxForm(f => {
+      const updated = { ...f, [field]: value };
+      // Auto-fill price when coin changes (use current live price)
+      if (field === "coin") updated.price = (COIN_PRICES[value] || "").toString();
+      return updated;
+    });
+  }
+
+  function submitTx() {
+    if (!txForm.member) return setTxFormError("Select a portfolio.");
+    if (!txForm.qty || parseFloat(txForm.qty) <= 0) return setTxFormError("Enter a valid quantity.");
+    if (!txForm.date) return setTxFormError("Select a date.");
+    const qty = parseFloat(txForm.qty);
+    const price = parseFloat(txForm.price) || 0;
+    const newTx = {
+      id: Date.now(),
+      member: txForm.member,
+      coin: txForm.coin,
+      type: txForm.type,
+      qty,
+      purchasePrice: price,
+      usdTotal: parseFloat((qty * price).toFixed(2)),
+      date: txForm.date,
+      exchange: txForm.exchange,
+      fee: 0,
+      notes: txForm.notes,
+    };
+    setUserTransactions(prev => [...prev, newTx]);
+    setTxFormError("");
+    setTxForm({ member: txForm.member, coin: txForm.coin, type: txForm.type, qty: "", price: (COIN_PRICES[txForm.coin] || "").toString(), date: today, exchange: txForm.exchange, notes: "" });
+    setAddTxOpen(false);
+  }
+
+  // Combined transaction list: hardcoded history + user-added
+  const TRANSACTIONS = [...HARDCODED_TRANSACTIONS, ...userTransactions];
+
+  // Recompute each member's USD value and unrealized P&L from holdings × live prices,
+  // adjusting holdings for any user-added transactions
   const MEMBERS = STATIC_MEMBERS.map(m => {
-    const liveUsd = Object.entries(m.holdings || {}).reduce(
+    const memberNewTxs = userTransactions.filter(t => t.member === m.id);
+    const holdings = { ...m.holdings };
+    let extraCost = 0;
+    memberNewTxs.forEach(tx => {
+      if (tx.type === "buy") {
+        holdings[tx.coin] = (holdings[tx.coin] || 0) + tx.qty;
+        extraCost += tx.usdTotal;
+      } else if (tx.type === "sell") {
+        holdings[tx.coin] = Math.max(0, (holdings[tx.coin] || 0) - tx.qty);
+      }
+    });
+    const newCostBasis = m.costBasis + extraCost;
+    const liveUsd = Object.entries(holdings).reduce(
       (sum, [coin, qty]) => sum + qty * (COIN_PRICES[coin] || 0), 0
     );
-    return { ...m, usd: liveUsd, unrealizedPL: liveUsd - m.costBasis };
+    return { ...m, holdings, usd: liveUsd, costBasis: newCostBasis, unrealizedPL: liveUsd - newCostBasis };
   });
 
   const totalUSD = MEMBERS.reduce((s, m) => s + m.usd, 0);
@@ -2196,50 +2256,116 @@ export default function CryptoApp() {
       )}
 
       {/* ADD TX MODAL */}
-      {addTxOpen && (
-        <>
-          <div className="overlay" onClick={() => setAddTxOpen(false)} />
-          <div className="modal">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 22 }}>
-              <span style={{ fontFamily: BC, fontWeight: 700, fontSize: 18, letterSpacing: "0" }}>Add Transaction</span>
-              <button style={{ background: "none", border: "none", color: "#666", cursor: "pointer", fontFamily: BC, fontWeight: 700, fontSize: 18 }} onClick={() => setAddTxOpen(false)}>✕</button>
+      {addTxOpen && (() => {
+        const qty = parseFloat(txForm.qty) || 0;
+        const price = parseFloat(txForm.price) || 0;
+        const totalCost = qty * price;
+        const currentPrice = COIN_PRICES[txForm.coin] || 0;
+        const currentVal = qty * currentPrice;
+        const unrealized = txForm.type === "buy" ? currentVal - totalCost : 0;
+        const allCoins = Object.keys(STATIC_PRICES).sort();
+        return (
+          <>
+            <div className="overlay" onClick={() => { setAddTxOpen(false); setTxFormError(""); }} />
+            <div className="modal">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                <span style={{ fontWeight: 700, fontSize: 18 }}>Add Transaction</span>
+                <button style={{ background: "none", border: "none", color: "#666", cursor: "pointer", fontSize: 20 }} onClick={() => { setAddTxOpen(false); setTxFormError(""); }}>✕</button>
+              </div>
+
+              <div style={{ display: "grid", gap: 13 }}>
+                {/* Portfolio */}
+                <div>
+                  <div className="lbl" style={{ marginBottom: 6 }}>Portfolio</div>
+                  <select value={txForm.member} onChange={e => setTxField("member", e.target.value)}>
+                    <option value="">Select member</option>
+                    {MEMBERS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
+                </div>
+
+                {/* Type toggle */}
+                <div>
+                  <div className="lbl" style={{ marginBottom: 6 }}>Type</div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {["buy", "sell"].map(t => (
+                      <button key={t} onClick={() => setTxField("type", t)}
+                        style={{ flex: 1, padding: "9px", borderRadius: 10, border: "none", fontWeight: 700, fontSize: 13, cursor: "pointer",
+                          background: txForm.type === t ? (t === "buy" ? "#00e676" : "#ff4444") : "#1a1a1a",
+                          color: txForm.type === t ? "#000" : "#555" }}>
+                        {t === "buy" ? "⬆ Buy" : "⬇ Sell"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Coin + Exchange */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div>
+                    <div className="lbl" style={{ marginBottom: 6 }}>Coin</div>
+                    <select value={txForm.coin} onChange={e => setTxField("coin", e.target.value)}>
+                      {allCoins.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <div className="lbl" style={{ marginBottom: 6 }}>Exchange</div>
+                    <select value={txForm.exchange} onChange={e => setTxField("exchange", e.target.value)}>
+                      {["Coinbase","Kraken","Gemini","Binance","iTrust","Robinhood","Hardware Wallet","Transfer","Other"].map(ex => (
+                        <option key={ex} value={ex}>{ex}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Qty + Price */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div>
+                    <div className="lbl" style={{ marginBottom: 6 }}>Quantity</div>
+                    <input type="number" min="0" step="any" placeholder="0.00000000"
+                      value={txForm.qty} onChange={e => setTxField("qty", e.target.value)} />
+                  </div>
+                  <div>
+                    <div className="lbl" style={{ marginBottom: 6 }}>Price (USD)</div>
+                    <input type="number" min="0" step="any" placeholder="0.00"
+                      value={txForm.price} onChange={e => setTxField("price", e.target.value)} />
+                  </div>
+                </div>
+
+                {/* Date */}
+                <div>
+                  <div className="lbl" style={{ marginBottom: 6 }}>Date</div>
+                  <input type="date" value={txForm.date} onChange={e => setTxField("date", e.target.value)} />
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <div className="lbl" style={{ marginBottom: 6 }}>Notes / Tags</div>
+                  <input placeholder="DCA, gift, staking reward..." value={txForm.notes} onChange={e => setTxField("notes", e.target.value)} />
+                </div>
+
+                {/* Live P&L preview */}
+                {qty > 0 && price > 0 && (
+                  <div style={{ background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: 10, padding: "12px 14px" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                      <div><div style={{ fontSize: 10, color: "#555", marginBottom: 3 }}>Total Cost</div><div style={{ fontSize: 13, fontWeight: 700, color: "#ccc" }}>${totalCost.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div></div>
+                      <div><div style={{ fontSize: 10, color: "#555", marginBottom: 3 }}>Current Val</div><div style={{ fontSize: 13, fontWeight: 700, color: "#ccc" }}>${currentVal.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div></div>
+                      <div><div style={{ fontSize: 10, color: "#555", marginBottom: 3 }}>Unrealized</div><div style={{ fontSize: 13, fontWeight: 700, color: unrealized >= 0 ? "#00e676" : "#ff4444" }}>{unrealized >= 0 ? "+" : ""}${unrealized.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div></div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Error */}
+                {txFormError && <div style={{ fontSize: 12, color: "#ff4444", textAlign: "center" }}>{txFormError}</div>}
+
+                <button onClick={submitTx}
+                  style={{ width: "100%", padding: "13px", borderRadius: 10, border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer",
+                    background: txForm.type === "buy" ? "#00e676" : "#ff4444", color: "#000" }}>
+                  {txForm.type === "buy" ? "⬆ Add Buy" : "⬇ Add Sell"}
+                </button>
+              </div>
             </div>
-            <div style={{ display: "grid", gap: 14 }}>
-              <div><div className="lbl" style={{ marginBottom: 6 }}>Portfolio</div>
-                <select><option>Select member</option>{MEMBERS.map(m => <option key={m.id}>{m.name}</option>)}</select>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <div><div className="lbl" style={{ marginBottom: 6 }}>Coin</div>
-                  <select><option>BTC</option><option>ETH</option><option>ADA</option><option>XRP</option><option>LTC</option><option>TRX</option></select>
-                </div>
-                <div><div className="lbl" style={{ marginBottom: 6 }}>Type</div>
-                  <select><option>Buy</option><option>Sell</option></select>
-                </div>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <div><div className="lbl" style={{ marginBottom: 6 }}>Quantity</div>
-                  <input type="number" placeholder="0.00000000" />
-                </div>
-                <div><div className="lbl" style={{ marginBottom: 6 }}>Price (USD)</div>
-                  <input type="number" placeholder="0.00" />
-                </div>
-              </div>
-              <div><div className="lbl" style={{ marginBottom: 6 }}>Date</div><input type="date" /></div>
-              <div><div className="lbl" style={{ marginBottom: 6 }}>Exchange / Wallet</div>
-                <select><option>Coinbase</option><option>Kraken</option><option>Gemini</option><option>Binance</option><option>iTrust</option><option>Hardware Wallet</option><option>Other</option></select>
-              </div>
-              <div><div className="lbl" style={{ marginBottom: 6 }}>Notes / Tags</div>
-                <input placeholder="DCA, gift, staking reward..." />
-              </div>
-              <div style={{ background: "#0a1a0a", border: "1px solid #162416", borderRadius: 3, padding: "11px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span className="lbl">Estimated P&L</span>
-                <span style={{ fontFamily: BC, fontWeight: 700, fontSize: 13, color: "#00e676", letterSpacing: "0" }}>Auto-calculated</span>
-              </div>
-              <button className="btn-primary" style={{ width: "100%", marginTop: 2 }}>+ Add Transaction</button>
-            </div>
-          </div>
-        </>
-      )}
+          </>
+        );
+      })()}
 
       {/* TRANSACTION OPTIONS BOTTOM SHEET */}
       {txOptionsOpen && (
