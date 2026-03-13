@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"c:/Users/gmedi/Dropbox/22. APPS/portfolio-app\" status)",
+      "Bash(gh auth:*)"
+    ]
+  }
+}
