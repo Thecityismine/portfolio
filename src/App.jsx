@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, BarChart, Bar } from "recharts";
+import { collection, addDoc, deleteDoc, doc, onSnapshot, query, orderBy, serverTimestamp } from "firebase/firestore";
+import { db } from "./firebase";
 
 // ─── STATIC FALLBACK PRICES (used when CMC API key is not set) ───────────────
 const STATIC_PRICES = {
@@ -1856,8 +1858,22 @@ export default function CryptoApp() {
   const [memberBenchmark, setMemberBenchmark] = useState("portfolio"); // "portfolio" | "btc" | "spy"
   const sliderRef = useRef(null);
 
-  // User-added transactions (on top of the hardcoded historical data)
-  const [userTransactions, setUserTransactions] = useState([]);
+  // Firestore-persisted transactions (new entries added via the form)
+  const [firestoreTxs, setFirestoreTxs] = useState([]);
+  const [firestoreReady, setFirestoreReady] = useState(false);
+
+  useEffect(() => {
+    const q = query(collection(db, "transactions"), orderBy("date", "asc"));
+    const unsub = onSnapshot(q, snapshot => {
+      const docs = snapshot.docs.map(d => ({ ...d.data(), id: d.id }));
+      setFirestoreTxs(docs);
+      setFirestoreReady(true);
+    }, err => {
+      console.error("Firestore listener error:", err);
+      setFirestoreReady(true); // still mark ready so app doesn't hang
+    });
+    return () => unsub();
+  }, []);
 
   // Form state for Add Transaction modal
   const today = new Date().toISOString().split("T")[0];
@@ -1865,48 +1881,53 @@ export default function CryptoApp() {
     member: "", coin: "BTC", type: "buy", qty: "", price: "", date: today, exchange: "Coinbase", notes: "",
   });
   const [txFormError, setTxFormError] = useState("");
+  const [txSubmitting, setTxSubmitting] = useState(false);
 
   function setTxField(field, value) {
     setTxForm(f => {
       const updated = { ...f, [field]: value };
-      // Auto-fill price when coin changes (use current live price)
       if (field === "coin") updated.price = (COIN_PRICES[value] || "").toString();
       return updated;
     });
   }
 
-  function submitTx() {
+  async function submitTx() {
     if (!txForm.member) return setTxFormError("Select a portfolio.");
     if (!txForm.qty || parseFloat(txForm.qty) <= 0) return setTxFormError("Enter a valid quantity.");
     if (!txForm.date) return setTxFormError("Select a date.");
+    setTxSubmitting(true);
     const qty = parseFloat(txForm.qty);
     const price = parseFloat(txForm.price) || 0;
-    const newTx = {
-      id: Date.now(),
-      member: txForm.member,
-      coin: txForm.coin,
-      type: txForm.type,
-      qty,
-      purchasePrice: price,
-      usdTotal: parseFloat((qty * price).toFixed(2)),
-      date: txForm.date,
-      exchange: txForm.exchange,
-      fee: 0,
-      notes: txForm.notes,
-    };
-    setUserTransactions(prev => [...prev, newTx]);
-    setTxFormError("");
-    setTxForm({ member: txForm.member, coin: txForm.coin, type: txForm.type, qty: "", price: (COIN_PRICES[txForm.coin] || "").toString(), date: today, exchange: txForm.exchange, notes: "" });
-    setAddTxOpen(false);
+    try {
+      await addDoc(collection(db, "transactions"), {
+        member: txForm.member,
+        coin: txForm.coin,
+        type: txForm.type,
+        qty,
+        purchasePrice: price,
+        usdTotal: parseFloat((qty * price).toFixed(2)),
+        date: txForm.date,
+        exchange: txForm.exchange,
+        fee: 0,
+        notes: txForm.notes,
+        createdAt: serverTimestamp(),
+      });
+      setTxFormError("");
+      setTxForm({ member: txForm.member, coin: txForm.coin, type: txForm.type, qty: "", price: (COIN_PRICES[txForm.coin] || "").toString(), date: today, exchange: txForm.exchange, notes: "" });
+      setAddTxOpen(false);
+    } catch (err) {
+      setTxFormError("Failed to save: " + err.message);
+    }
+    setTxSubmitting(false);
   }
 
-  // Combined transaction list: hardcoded history + user-added
-  const TRANSACTIONS = [...HARDCODED_TRANSACTIONS, ...userTransactions];
+  // Combined transaction list: hardcoded history + Firestore-persisted new entries
+  const TRANSACTIONS = [...HARDCODED_TRANSACTIONS, ...firestoreTxs];
 
-  // Recompute each member's USD value and unrealized P&L from holdings × live prices,
-  // adjusting holdings for any user-added transactions
+  // Recompute each member's holdings and portfolio values,
+  // applying Firestore transactions on top of the static historical baseline
   const MEMBERS = STATIC_MEMBERS.map(m => {
-    const memberNewTxs = userTransactions.filter(t => t.member === m.id);
+    const memberNewTxs = firestoreTxs.filter(t => t.member === m.id);
     const holdings = { ...m.holdings };
     let extraCost = 0;
     memberNewTxs.forEach(tx => {
@@ -2356,10 +2377,11 @@ export default function CryptoApp() {
                 {/* Error */}
                 {txFormError && <div style={{ fontSize: 12, color: "#ff4444", textAlign: "center" }}>{txFormError}</div>}
 
-                <button onClick={submitTx}
-                  style={{ width: "100%", padding: "13px", borderRadius: 10, border: "none", fontWeight: 700, fontSize: 14, cursor: "pointer",
+                <button onClick={submitTx} disabled={txSubmitting}
+                  style={{ width: "100%", padding: "13px", borderRadius: 10, border: "none", fontWeight: 700, fontSize: 14,
+                    cursor: txSubmitting ? "not-allowed" : "pointer", opacity: txSubmitting ? 0.6 : 1,
                     background: txForm.type === "buy" ? "#00e676" : "#ff4444", color: "#000" }}>
-                  {txForm.type === "buy" ? "⬆ Add Buy" : "⬇ Add Sell"}
+                  {txSubmitting ? "Saving..." : txForm.type === "buy" ? "⬆ Add Buy" : "⬇ Add Sell"}
                 </button>
               </div>
             </div>
@@ -2388,13 +2410,28 @@ export default function CryptoApp() {
             <div style={{ height: 1, background: "#3a3a3a", margin: "0 24px" }} />
 
             {/* Remove */}
-            <button className="options-sheet-row" onClick={() => setTxOptionsOpen(null)}>
-              <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3" strokeLinecap="round">
+            <button className="options-sheet-row" onClick={async () => {
+              const txId = txOptionsOpen;
+              // Only Firestore transactions (string IDs) can be deleted
+              if (typeof txId === "string") {
+                try {
+                  await deleteDoc(doc(db, "transactions", txId));
+                } catch (err) {
+                  console.error("Delete failed:", err);
+                }
+              } else {
+                alert("Historical transactions cannot be removed here. They are part of the imported CSV data.");
+              }
+              setTxOptionsOpen(null);
+            }}>
+              <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#ff4444", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round">
                   <line x1="5" y1="12" x2="19" y2="12"/>
                 </svg>
               </div>
-              <span style={{ fontSize: 20, fontWeight: 600, color: "#fff" }}>Remove Transaction</span>
+              <span style={{ fontSize: 20, fontWeight: 600, color: typeof txOptionsOpen === "string" ? "#ff4444" : "#555" }}>
+                {typeof txOptionsOpen === "string" ? "Remove Transaction" : "Cannot Remove (Historical)"}
+              </span>
             </button>
           </div>
         </>

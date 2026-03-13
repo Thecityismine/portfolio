@@ -1,7 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
-import { getAnalytics } from 'firebase/analytics';
+import { getAnalytics, isSupported } from 'firebase/analytics';
 
 const firebaseConfig = {
   apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
@@ -13,9 +13,11 @@ const firebaseConfig = {
   measurementId:     import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
-const app        = initializeApp(firebaseConfig);
-export const db  = getFirestore(app);
+const app       = initializeApp(firebaseConfig);
+export const db = getFirestore(app);
 export const auth = getAuth(app);
-export const analytics = getAnalytics(app);
+
+// Analytics only runs in browser environments
+export const analytics = isSupported().then(yes => yes ? getAnalytics(app) : null);
 
 export default app;
