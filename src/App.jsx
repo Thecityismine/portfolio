@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from "react";
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, BarChart, Bar } from "recharts";
-import { firebaseConfigured } from "./firebase";
 
 // ─── STATIC FALLBACK PRICES (used when CMC API key is not set) ───────────────
 const STATIC_PRICES = {
