@@ -1822,6 +1822,79 @@ function TaxPage({ fmtFull, TRANSACTIONS, MEMBERS, COIN_PRICES, anthropicKey: gl
 
 
 
+// ─── FIRESTORE REST API (bypasses SDK WebSocket — plain HTTPS) ───────────────
+const _FS_PROJECT = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+const _FS_APIKEY  = import.meta.env.VITE_FIREBASE_API_KEY;
+const FS_BASE = _FS_PROJECT && _FS_APIKEY
+  ? `https://firestore.googleapis.com/v1/projects/${_FS_PROJECT}/databases/(default)/documents`
+  : null;
+
+function _fsVal(v) {
+  if (!v) return null;
+  if ("stringValue"   in v) return v.stringValue;
+  if ("doubleValue"   in v) return v.doubleValue;
+  if ("integerValue"  in v) return Number(v.integerValue);
+  if ("booleanValue"  in v) return v.booleanValue;
+  if ("timestampValue" in v) return v.timestampValue;
+  if ("mapValue"      in v) return Object.fromEntries(
+    Object.entries(v.mapValue.fields || {}).map(([k, w]) => [k, _fsVal(w)]));
+  return null;
+}
+function _fsFromDoc(d) {
+  const id = d.name.split("/").pop();
+  return { id, ...Object.fromEntries(Object.entries(d.fields || {}).map(([k, v]) => [k, _fsVal(v)])) };
+}
+function _fsFields(obj) {
+  const toV = v => {
+    if (v === null || v === undefined) return { nullValue: null };
+    if (typeof v === "string")  return { stringValue: v };
+    if (typeof v === "number")  return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+    if (typeof v === "boolean") return { booleanValue: v };
+    if (typeof v === "object")  return { mapValue: { fields: _fsFields(v) } };
+    return { stringValue: String(v) };
+  };
+  return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, toV(v)]));
+}
+async function fsGetAll(col) {
+  if (!FS_BASE) throw new Error("Firebase not configured");
+  const r = await fetch(`${FS_BASE}/${col}?key=${_FS_APIKEY}`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const j = await r.json();
+  return (j.documents || []).map(_fsFromDoc);
+}
+async function fsAdd(col, data) {
+  if (!FS_BASE) throw new Error("Firebase not configured");
+  const r = await fetch(`${FS_BASE}/${col}?key=${_FS_APIKEY}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fields: _fsFields(data) }),
+  });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error?.message || `HTTP ${r.status}`); }
+  return _fsFromDoc(await r.json());
+}
+async function fsUpdate(col, id, data) {
+  if (!FS_BASE) throw new Error("Firebase not configured");
+  const mask = Object.keys(data).map(k => `updateMask.fieldPaths=${encodeURIComponent(k)}`).join("&");
+  const r = await fetch(`${FS_BASE}/${col}/${id}?${mask}&key=${_FS_APIKEY}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fields: _fsFields(data) }),
+  });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error?.message || `HTTP ${r.status}`); }
+}
+async function fsSet(col, id, data) {
+  if (!FS_BASE) throw new Error("Firebase not configured");
+  const r = await fetch(`${FS_BASE}/${col}/${id}?key=${_FS_APIKEY}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fields: _fsFields(data) }),
+  });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error?.message || `HTTP ${r.status}`); }
+}
+async function fsDel(col, id) {
+  if (!FS_BASE) throw new Error("Firebase not configured");
+  const r = await fetch(`${FS_BASE}/${col}/${id}?key=${_FS_APIKEY}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function CryptoApp() {
   const [page, setPage] = useState("home");
   const [anthropicKey, setAnthropicKey] = useState(() => localStorage.getItem("anthropic_key") || "");
@@ -1832,49 +1905,20 @@ export default function CryptoApp() {
   const [priceStatus, setPriceStatus] = useState("static"); // "static" | "loading" | "live" | "error"
 
   // Firestore REST API helpers — bypasses SDK WebSocket, uses plain HTTPS
-  const FS_PROJECT = import.meta.env.VITE_FIREBASE_PROJECT_ID;
-  const FS_API_KEY = import.meta.env.VITE_FIREBASE_API_KEY;
-  const FS_URL = FS_PROJECT && FS_API_KEY
-    ? `https://firestore.googleapis.com/v1/projects/${FS_PROJECT}/databases/(default)/documents/settings/app?key=${FS_API_KEY}`
-    : null;
-
-  async function fsReadCmcKey() {
-    if (!FS_URL) return null;
-    try {
-      const r = await fetch(FS_URL);
-      if (!r.ok) return null;
-      const data = await r.json();
-      return data.fields?.cmcKey?.stringValue ?? null;
-    } catch { return null; }
-  }
-
-  async function fsWriteCmcKey(key) {
-    if (!FS_URL) throw new Error("Firebase not configured");
-    const url = FS_URL + "&updateMask.fieldPaths=cmcKey";
-    const r = await fetch(url, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fields: { cmcKey: { stringValue: key } } }),
-    });
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({}));
-      throw new Error(err.error?.message || `HTTP ${r.status}`);
-    }
-    return r.json();
-  }
-
   // On load: pull CMC key from Firestore (REST), fall back to localStorage
   useEffect(() => {
-    fsReadCmcKey().then(key => {
+    if (!FS_BASE) return;
+    fsGetAll("settings").then(docs => {
+      const app = docs.find(d => d.id === "app");
+      const key = app?.cmcKey ?? null;
       if (key && key !== localStorage.getItem("cmc_key")) {
         setCmcKey(key);
         localStorage.setItem("cmc_key", key);
       } else if (!key) {
-        // Nothing in Firestore yet — push localStorage key up
         const local = localStorage.getItem("cmc_key");
-        if (local) fsWriteCmcKey(local).catch(console.warn);
+        if (local) fsUpdate("settings", "app", { cmcKey: local }).catch(console.warn);
       }
-    });
+    }).catch(console.warn);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -1937,31 +1981,26 @@ export default function CryptoApp() {
   const [firestoreReady, setFirestoreReady] = useState(false);
 
   useEffect(() => {
-    if (!firebaseReady) {
-      setFirestoreReady(true);
-      return;
-    }
-    const q = query(collection(db, "transactions"), orderBy("date", "asc"));
-    const unsub = onSnapshot(q, snapshot => {
-      const docs = snapshot.docs.map(d => ({ ...d.data(), id: d.id }));
-      setFirestoreTxs(docs);
-      setFirestoreReady(true);
-    }, err => {
-      console.error("Firestore listener error:", err);
-      setFirestoreReady(true); // still mark ready so app doesn't hang
-    });
-    return () => unsub();
+    if (!FS_BASE) { setFirestoreReady(true); return; }
+    fsGetAll("transactions")
+      .then(docs => {
+        docs.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+        setFirestoreTxs(docs);
+        setFirestoreReady(true);
+      })
+      .catch(err => { console.error("Failed to load transactions:", err); setFirestoreReady(true); });
   }, []);
 
   // Portfolio snapshots — one document per day keyed by date string
   const [snapshots, setSnapshots] = useState([]);
   useEffect(() => {
-    if (!firebaseReady) return;
-    const q = query(collection(db, "snapshots"), orderBy("date", "asc"));
-    const unsub = onSnapshot(q, snap => {
-      setSnapshots(snap.docs.map(d => d.data()));
-    }, err => console.error("Snapshots listener error:", err));
-    return () => unsub();
+    if (!FS_BASE) return;
+    fsGetAll("snapshots")
+      .then(docs => {
+        docs.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+        setSnapshots(docs);
+      })
+      .catch(err => console.error("Failed to load snapshots:", err));
   }, []);
 
   const snappedTodayRef = useRef(false);
@@ -2026,12 +2065,12 @@ export default function CryptoApp() {
     if (!txForm.member) return setTxFormError("Select a portfolio.");
     if (!txForm.qty || parseFloat(txForm.qty) <= 0) return setTxFormError("Enter a valid quantity.");
     if (!txForm.date) return setTxFormError("Select a date.");
-    if (!firebaseReady) return setTxFormError(firestoreDisabledMessage);
+    if (!FS_BASE) return setTxFormError("Firebase not configured. Check Vercel env vars.");
     setTxSubmitting(true);
     const qty = parseFloat(txForm.qty);
     const price = parseFloat(txForm.price) || 0;
     try {
-      await addDoc(collection(db, "transactions"), {
+      const newTx = await fsAdd("transactions", {
         member: txForm.member,
         coin: txForm.coin,
         type: txForm.type,
@@ -2042,8 +2081,9 @@ export default function CryptoApp() {
         exchange: txForm.exchange,
         fee: 0,
         notes: txForm.notes,
-        createdAt: serverTimestamp(),
+        createdAt: new Date().toISOString(),
       });
+      setFirestoreTxs(prev => [...prev, newTx].sort((a, b) => (a.date || "").localeCompare(b.date || "")));
       setTxFormError("");
       setTxForm({ member: txForm.member, coin: txForm.coin, type: txForm.type, qty: "", price: (COIN_PRICES[txForm.coin] || "").toString(), date: today, exchange: txForm.exchange, notes: "" });
       setAddTxOpen(false);
@@ -2082,22 +2122,18 @@ export default function CryptoApp() {
   async function submitEdit() {
     if (!editForm.qty || parseFloat(editForm.qty) <= 0) return setEditFormError("Enter a valid quantity.");
     if (!editForm.date) return setEditFormError("Select a date.");
-    if (!firebaseReady) return setEditFormError(firestoreDisabledMessage);
+    if (!FS_BASE) return setEditFormError("Firebase not configured. Check Vercel env vars.");
     setEditSubmitting(true);
     const qty = parseFloat(editForm.qty);
     const price = parseFloat(editForm.price) || 0;
+    const updates = {
+      member: editForm.member, coin: editForm.coin, type: editForm.type,
+      qty, purchasePrice: price, usdTotal: parseFloat((qty * price).toFixed(2)),
+      date: editForm.date, exchange: editForm.exchange, notes: editForm.notes,
+    };
     try {
-      await updateDoc(doc(db, "transactions", editingTx.id), {
-        member: editForm.member,
-        coin: editForm.coin,
-        type: editForm.type,
-        qty,
-        purchasePrice: price,
-        usdTotal: parseFloat((qty * price).toFixed(2)),
-        date: editForm.date,
-        exchange: editForm.exchange,
-        notes: editForm.notes,
-      });
+      await fsUpdate("transactions", editingTx.id, updates);
+      setFirestoreTxs(prev => prev.map(t => t.id === editingTx.id ? { ...t, ...updates } : t));
       setEditingTx(null);
     } catch (err) {
       setEditFormError("Failed to save: " + err.message);
@@ -2136,20 +2172,21 @@ export default function CryptoApp() {
 
   // Write one snapshot per day when prices are live and Firestore is ready
   useEffect(() => {
-    if (!firebaseReady || !firestoreReady || totalUSD <= 0 || snappedTodayRef.current) return;
+    if (!FS_BASE || !firestoreReady || totalUSD <= 0 || snappedTodayRef.current) return;
     const todayStr = new Date().toISOString().split("T")[0];
     const lastSnap = localStorage.getItem("last_snapshot_date");
     if (lastSnap === todayStr) { snappedTodayRef.current = true; return; }
     snappedTodayRef.current = true;
     const memberValues = {};
     MEMBERS.forEach(m => { memberValues[m.id] = Math.round(m.usd * 100) / 100; });
-    setDoc(doc(db, "snapshots", todayStr), {
+    fsSet("snapshots", todayStr, {
       date: todayStr,
       totalUSD: Math.round(totalUSD * 100) / 100,
       members: memberValues,
-      timestamp: serverTimestamp(),
+      timestamp: new Date().toISOString(),
     }).then(() => {
       localStorage.setItem("last_snapshot_date", todayStr);
+      setSnapshots(prev => { const without = prev.filter(s => s.date !== todayStr); return [...without, { date: todayStr, totalUSD: Math.round(totalUSD * 100) / 100, members: memberValues }].sort((a, b) => a.date.localeCompare(b.date)); });
     }).catch(err => {
       snappedTodayRef.current = false;
       console.error("Snapshot write error:", err);
@@ -2220,18 +2257,21 @@ export default function CryptoApp() {
   }
 
   async function saveImport() {
-    if (!firebaseReady) return setImportError(firestoreDisabledMessage);
+    if (!FS_BASE) return setImportError("Firebase not configured. Check Vercel env vars.");
     if (!importPreview.length) return;
     setImportSaving(true);
     setImportDone(0);
     let saved = 0;
+    const newTxs = [];
     for (const row of importPreview) {
       try {
-        await addDoc(collection(db, "transactions"), { ...row, createdAt: serverTimestamp() });
+        const newTx = await fsAdd("transactions", { ...row, createdAt: new Date().toISOString() });
+        newTxs.push(newTx);
         saved++;
         setImportDone(saved);
       } catch { /* skip row on error */ }
     }
+    if (newTxs.length) setFirestoreTxs(prev => [...prev, ...newTxs].sort((a, b) => (a.date || "").localeCompare(b.date || "")));
     setImportSaving(false);
     setImportPreview([]);
     setImportText("");
@@ -2834,16 +2874,14 @@ export default function CryptoApp() {
 	              <button className="options-sheet-row" onClick={async () => {
 	                const txId = txOptionsOpen;
 	                // Only Firestore transactions (string IDs) can be deleted
-	                if (typeof txId === "string") {
-	                  try {
-	                    if (!firebaseReady) {
-	                      alert(firestoreDisabledMessage);
-	                    } else {
-	                      await deleteDoc(doc(db, "transactions", txId));
-	                    }
-	                  } catch (err) {
-	                    console.error("Delete failed:", err);
-	                  }
+                if (typeof txId === "string") {
+                  try {
+                    await fsDel("transactions", txId);
+                    setFirestoreTxs(prev => prev.filter(t => t.id !== txId));
+                  } catch (err) {
+                    console.error("Delete failed:", err);
+                    alert("Delete failed: " + err.message);
+                  }
 	                } else {
                 alert("Historical transactions cannot be removed here. They are part of the imported CSV data.");
               }
@@ -4000,7 +4038,7 @@ export default function CryptoApp() {
                   </div>
 	                  <button
 	                    style={{ marginLeft: "auto", background: firebaseReady ? "#00e676" : "#555", border: "none", borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, color: firebaseReady ? "#000" : "#111", cursor: firebaseReady ? "pointer" : "not-allowed", opacity: firebaseReady ? 1 : 0.75 }}
-	                    onClick={() => firebaseReady ? setAddTxOpen(true) : alert(firestoreDisabledMessage)}>+ Add</button>
+	                    onClick={() => setAddTxOpen(true)}>+ Add</button>
                 </div>
 
                 {/* Expanded transaction detail cards */}
@@ -4406,7 +4444,7 @@ export default function CryptoApp() {
                 </button>
                 <button
                   style={{ background: firebaseReady ? "#00e676" : "#555", border: "none", borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, color: firebaseReady ? "#000" : "#111", cursor: firebaseReady ? "pointer" : "not-allowed", opacity: firebaseReady ? 1 : 0.75 }}
-                  onClick={() => firebaseReady ? setAddTxOpen(true) : alert(firestoreDisabledMessage)}>
+                  onClick={() => setAddTxOpen(true)}>
                   + Add
                 </button>
               </div>
@@ -4473,7 +4511,7 @@ export default function CryptoApp() {
                   disabled={!cmcKey || cmcSyncStatus === "saving"}
                   onClick={() => {
                     setCmcSyncStatus("saving");
-                    fsWriteCmcKey(cmcKey)
+                    fsSet("settings", "app", { cmcKey })
                       .then(() => { setCmcSyncStatus("saved"); setTimeout(() => setCmcSyncStatus(""), 3000); })
                       .catch(err => { console.warn("Sync failed:", err.message); setCmcSyncStatus("error:" + err.message); });
                   }}
@@ -4481,7 +4519,7 @@ export default function CryptoApp() {
                   {cmcSyncStatus === "saving" ? "Saving..." : cmcSyncStatus.startsWith("saved") ? "Saved ✓" : cmcSyncStatus.startsWith("error") ? "Error ✗" : "Save & Sync"}
                 </button>
                 {cmcKey && (
-                  <button onClick={() => { setCmcKey(""); localStorage.removeItem("cmc_key"); setCmcSyncStatus(""); fsWriteCmcKey("").catch(console.warn); }}
+                  <button onClick={() => { setCmcKey(""); localStorage.removeItem("cmc_key"); setCmcSyncStatus(""); fsSet("settings", "app", { cmcKey: "" }).catch(console.warn); }}
                     style={{ background: "none", border: "1px solid #333", borderRadius: 7, color: "#555", fontSize: 11, padding: "6px 14px", cursor: "pointer" }}>
                     Clear
                   </button>
