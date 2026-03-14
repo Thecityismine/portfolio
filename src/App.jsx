@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, BarChart, Bar } from "recharts";
 
 // ─── STATIC FALLBACK PRICES (used when CMC API key is not set) ───────────────
@@ -1895,6 +1895,7 @@ async function fsDel(col, id) {
 
 export default function CryptoApp() {
   const [page, setPage] = useState("home");
+  useLayoutEffect(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0; }, [page]);
   const [anthropicKey, setAnthropicKey] = useState(() => localStorage.getItem("anthropic_key") || "");
   const [anthropicSyncStatus, setAnthropicSyncStatus] = useState("");
   const [cmcKey, setCmcKey] = useState(() => localStorage.getItem("cmc_key") || "");
@@ -3312,7 +3313,7 @@ export default function CryptoApp() {
         const ethChg = liveChanges.ETH ?? null;
         const fmt24h = (chg) => chg === null ? "—" : `${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%`;
         return (
-          <div style={{ display: "flex", gap: 6, padding: "8px 18px", borderBottom: "1px solid #0c0c0c" }}>
+          <div style={{ display: "flex", gap: 6, padding: "8px 18px", borderBottom: "1px solid #0c0c0c", position: "sticky", top: 52, background: "#080808", zIndex: 49 }}>
             {[
               { sym: "₿", name: "BTC", price: fmtFull(BTC_PRICE), pct: fmt24h(btcChg), up: (btcChg ?? 0) >= 0, color: "#f7931a" },
               { sym: "Ξ", name: "ETH", price: fmtFull(ETH_PRICE), pct: fmt24h(ethChg), up: (ethChg ?? 0) >= 0, color: "#627eea" },
@@ -3327,7 +3328,7 @@ export default function CryptoApp() {
         );
       })()}
 
-      <div key={page} ref={scrollContainerRef} style={{ height: "calc(100vh - 165px)", overflowY: "auto", paddingBottom: 80 }}>
+      <div ref={scrollContainerRef} style={{ height: "calc(100vh - 165px)", overflowY: "auto", paddingBottom: 80 }}>
 
         {/* HOME */}
         {page === "home" && (
