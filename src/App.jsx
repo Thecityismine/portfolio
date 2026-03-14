@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, BarChart, Bar } from "recharts";
-import { collection, addDoc, deleteDoc, updateDoc, doc, setDoc, onSnapshot, query, orderBy, serverTimestamp } from "firebase/firestore";
-import { db, firebaseConfigured, firebaseInitError, firebaseReady } from "./firebase";
+import { firebaseConfigured } from "./firebase";
 
 // ─── STATIC FALLBACK PRICES (used when CMC API key is not set) ───────────────
 const STATIC_PRICES = {
@@ -1965,23 +1964,21 @@ export default function CryptoApp() {
   const [coinChartRange, setCoinChartRange] = useState("ALL");
   const [memberBenchmark, setMemberBenchmark] = useState("portfolio"); // "portfolio" | "btc" | "spy"
   const sliderRef = useRef(null);
-  const firestoreStatusText = !firebaseConfigured
+  const firestoreStatusText = !FS_BASE
     ? "Missing Vercel Firebase env vars"
-    : firebaseReady
-      ? "Connected"
-      : firebaseInitError
-        ? "Initialization failed"
-        : "Unavailable";
-  const firestoreDisabledMessage = !firebaseConfigured
-    ? "Firebase features are disabled until Vercel has the VITE_FIREBASE_* environment variables."
-    : "Firebase is unavailable right now. The app is running in static mode.";
+    : firestoreReady
+      ? "Connected (REST)"
+      : "Connecting...";
+  const firestoreDisabledMessage = !FS_BASE
+    ? "Firebase not configured. Check Vercel VITE_FIREBASE_* env vars."
+    : "Firebase is unavailable right now.";
 
   // Firestore-persisted transactions (new entries added via the form)
   const [firestoreTxs, setFirestoreTxs] = useState([]);
   const [firestoreReady, setFirestoreReady] = useState(false);
 
-  useEffect(() => {
-    if (!FS_BASE) { setFirestoreReady(true); return; }
+  function refreshTransactions() {
+    if (!FS_BASE) return;
     fsGetAll("transactions")
       .then(docs => {
         docs.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
@@ -1989,7 +1986,18 @@ export default function CryptoApp() {
         setFirestoreReady(true);
       })
       .catch(err => { console.error("Failed to load transactions:", err); setFirestoreReady(true); });
-  }, []);
+  }
+
+  useEffect(() => {
+    if (!FS_BASE) { setFirestoreReady(true); return; }
+    refreshTransactions();
+    // Refresh when tab regains focus (another device may have added transactions)
+    const onFocus = () => refreshTransactions();
+    window.addEventListener("focus", onFocus);
+    // Also poll every 60 seconds
+    const poll = setInterval(refreshTransactions, 60000);
+    return () => { window.removeEventListener("focus", onFocus); clearInterval(poll); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Portfolio snapshots — one document per day keyed by date string
   const [snapshots, setSnapshots] = useState([]);
@@ -2025,7 +2033,7 @@ export default function CryptoApp() {
     if (transferForm.fromMember === transferForm.toMember) return setTransferError("Sender and recipient must be different.");
     if (!transferForm.qty || parseFloat(transferForm.qty) <= 0) return setTransferError("Enter a valid quantity.");
     if (!transferForm.date) return setTransferError("Select a date.");
-    if (!firebaseReady) return setTransferError(firestoreDisabledMessage);
+    if (!FS_BASE) return setTransferError(firestoreDisabledMessage);
     setTransferSubmitting(true);
     const qty = parseFloat(transferForm.qty);
     const price = COIN_PRICES[transferForm.coin] || 0;
@@ -2034,16 +2042,17 @@ export default function CryptoApp() {
     const fromName = MEMBERS.find(m => m.id === transferForm.fromMember)?.name || transferForm.fromMember;
     const toName   = MEMBERS.find(m => m.id === transferForm.toMember)?.name   || transferForm.toMember;
     try {
-      await addDoc(collection(db, "transactions"), {
+      const tx1 = await fsAdd("transactions", {
         member: transferForm.fromMember, coin: transferForm.coin, type: "sell",
         qty, purchasePrice: price, usdTotal, date: transferForm.date,
-        exchange: "Transfer", fee: 0, notes: `Transfer → ${toName}`, transferId, createdAt: serverTimestamp(),
+        exchange: "Transfer", fee: 0, notes: `Transfer → ${toName}`, transferId, createdAt: new Date().toISOString(),
       });
-      await addDoc(collection(db, "transactions"), {
+      const tx2 = await fsAdd("transactions", {
         member: transferForm.toMember, coin: transferForm.coin, type: "buy",
         qty, purchasePrice: price, usdTotal, date: transferForm.date,
-        exchange: "Transfer", fee: 0, notes: `Transfer ← ${fromName}`, transferId, createdAt: serverTimestamp(),
+        exchange: "Transfer", fee: 0, notes: `Transfer ← ${fromName}`, transferId, createdAt: new Date().toISOString(),
       });
+      setFirestoreTxs(prev => [...prev, tx1, tx2].sort((a, b) => (a.date || "").localeCompare(b.date || "")));
       setTransferError("");
       setTransferForm({ fromMember: transferForm.fromMember, toMember: transferForm.toMember, coin: transferForm.coin, qty: "", date: today });
       setAddTxOpen(false);
@@ -4037,7 +4046,7 @@ export default function CryptoApp() {
                     <div style={{ fontSize: 12, color: "#777" }}>{coinTxs.length} transactions</div>
                   </div>
 	                  <button
-	                    style={{ marginLeft: "auto", background: firebaseReady ? "#00e676" : "#555", border: "none", borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, color: firebaseReady ? "#000" : "#111", cursor: firebaseReady ? "pointer" : "not-allowed", opacity: firebaseReady ? 1 : 0.75 }}
+	                    style={{ marginLeft: "auto", background: "#00e676", border: "none", borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, color: "#000", cursor: "pointer" }}
 	                    onClick={() => setAddTxOpen(true)}>+ Add</button>
                 </div>
 
@@ -4443,7 +4452,7 @@ export default function CryptoApp() {
                   ↑ Import
                 </button>
                 <button
-                  style={{ background: firebaseReady ? "#00e676" : "#555", border: "none", borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, color: firebaseReady ? "#000" : "#111", cursor: firebaseReady ? "pointer" : "not-allowed", opacity: firebaseReady ? 1 : 0.75 }}
+                  style={{ background: "#00e676", border: "none", borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, color: "#000", cursor: "pointer" }}
                   onClick={() => setAddTxOpen(true)}>
                   + Add
                 </button>
@@ -4534,10 +4543,10 @@ export default function CryptoApp() {
 	              {[["Project","portfolio-f86b9"],["Auth Domain","portfolio-f86b9.firebaseapp.com"],["Database","Firestore"],["Status",firestoreStatusText]].map(([k,v],i,a)=>(
 	                <div key={k} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"11px 16px", borderBottom:i<a.length-1?"1px solid #0e0e0e":"none" }}>
 	                  <span style={{ fontSize:12, color:"#666" }}>{k}</span>
-	                  <span style={{ fontSize:12, fontWeight:600, color:k==="Status" ? (firebaseReady ? "#00e676" : "#f7931a") : "#aaa" }}>{v}</span>
+	                  <span style={{ fontSize:12, fontWeight:600, color:k==="Status" ? (firestoreReady ? "#00e676" : "#f7931a") : "#aaa" }}>{v}</span>
 	                </div>
 	              ))}
-	              {!firebaseReady && (
+	              {!FS_BASE && (
 	                <div style={{ padding: "12px 16px", borderTop: "1px solid #0e0e0e", fontSize: 11, color: "#777", lineHeight: 1.5 }}>
 	                  {firestoreDisabledMessage}
 	                </div>
