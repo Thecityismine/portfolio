@@ -4827,6 +4827,310 @@ export default function CryptoApp() {
           </div>
         )}
 
+        {/* ── INHERITANCE PAGE ── */}
+        {page === "inheritance" && (() => {
+          const jorge = MEMBERS.find(m => m.id === "jorge");
+          const executor = MEMBERS.find(m => m.id === inheritanceExecutorId) || MEMBERS[0];
+          const jorgeHoldings = jorge?.holdings || {};
+          const jorgeCoins = Object.keys(jorgeHoldings).filter(c => (jorgeHoldings[c] || 0) > 0.00001);
+          const altCoins = jorgeCoins.filter(c => c !== "BTC" && c !== "ETH");
+          const allAltsUSD = altCoins.reduce((s, c) => s + (jorgeHoldings[c] || 0) * (COIN_PRICES[c] || 0), 0);
+          const totalEstateUSD = jorgeCoins.reduce((s, c) => s + (jorgeHoldings[c] || 0) * (COIN_PRICES[c] || 0), 0);
+          const allNonJorge = MEMBERS.filter(m => m.id !== "jorge");
+          const activeBeneficiaryIds = inheritanceBeneficiaryIds ?? allNonJorge.map(m => m.id);
+          const beneficiaries = allNonJorge.filter(m => activeBeneficiaryIds.includes(m.id));
+          const PIE_COLORS = ["#f7931a","#00e676","#2979ff","#ff4081","#aa00ff","#ffab40","#00bcd4","#ff6b6b","#69db7c","#ffd43b"];
+
+          // Helper: get effective pct for a coin (alts use _altcoins group)
+          const getPct = (coin, memberId) => {
+            if (coin === "BTC" || coin === "ETH") return inheritanceAllocs[coin]?.[memberId] || 0;
+            return inheritanceAllocs._altcoins?.[memberId] || 0;
+          };
+          const getDraftPct = (coin, memberId) => {
+            if (coin === "BTC" || coin === "ETH") return inheritanceDraft[coin]?.[memberId] || 0;
+            return inheritanceDraft._altcoins?.[memberId] || 0;
+          };
+
+          const beneficiaryTotals = beneficiaries.map((m, i) => {
+            const btcPct = getPct("BTC", m.id);
+            const ethPct = getPct("ETH", m.id);
+            const altPct = inheritanceAllocs._altcoins?.[m.id] || 0;
+            const inheritedCoins = [
+              ...(jorgeHoldings.BTC > 0.00001 && btcPct > 0 ? [{ coin: "BTC", pct: btcPct, qty: jorgeHoldings.BTC * btcPct / 100, usd: jorgeHoldings.BTC * btcPct / 100 * (COIN_PRICES.BTC || 0) }] : []),
+              ...(jorgeHoldings.ETH > 0.00001 && ethPct > 0 ? [{ coin: "ETH", pct: ethPct, qty: jorgeHoldings.ETH * ethPct / 100, usd: jorgeHoldings.ETH * ethPct / 100 * (COIN_PRICES.ETH || 0) }] : []),
+              ...(altCoins.length > 0 && altPct > 0 ? [{ coin: "Altcoins", pct: altPct, qty: null, usd: allAltsUSD * altPct / 100 }] : []),
+            ];
+            const inheritedUSD = inheritedCoins.reduce((s, x) => s + x.usd, 0);
+            const ownUSD = Object.entries(m.holdings || {}).reduce((s, [c, q]) => s + q * (COIN_PRICES[c] || 0), 0);
+            return { ...m, inheritedCoins, inheritedUSD, ownUSD, color: PIE_COLORS[i % PIE_COLORS.length] };
+          });
+
+          const pieData = beneficiaryTotals.filter(b => b.inheritedUSD > 0)
+            .map(b => ({ name: b.name.split(" ")[0], value: Math.round(b.inheritedUSD), color: b.color }));
+
+          const ALLOC_GROUPS = [
+            ...(jorgeHoldings.BTC > 0.00001 ? ["BTC"] : []),
+            ...(jorgeHoldings.ETH > 0.00001 ? ["ETH"] : []),
+            ...(altCoins.length > 0 ? ["_altcoins"] : []),
+          ];
+          const groupLabel = g => g === "_altcoins" ? "Altcoins" : g;
+          const groupSub = g => g === "_altcoins" ? `${altCoins.length} coins · ${fmtFull(allAltsUSD)}` : fmtFull((jorgeHoldings[g] || 0) * (COIN_PRICES[g] || 0));
+
+          const unallocated = ALLOC_GROUPS.filter(g => {
+            const total = beneficiaries.reduce((s, m) => s + (inheritanceAllocs[g]?.[m.id] || 0), 0);
+            return total < 99.9;
+          }).map(groupLabel);
+
+          return (
+            <div className="fade-in" style={{ padding: "18px 18px 120px" }}>
+
+              {/* Executor / Estate Card — collapsible */}
+              <div style={{ background: "linear-gradient(135deg,#0a1628,#0f2040)", border: "1px solid #1a3a6a", borderRadius: 16, marginBottom: 16, overflow: "hidden" }}>
+                {/* Always-visible header row */}
+                <div onClick={() => setExecutorCardCollapsed(v => !v)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", cursor: "pointer" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: "50%", background: "#0d2040", border: "2px solid #2979ff44", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "#4d8aff", flexShrink: 0 }}>{executor?.avatar}</div>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "#2979ff", letterSpacing: "0.08em", textTransform: "uppercase" }}>Estate Executor</div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{executor?.name}</div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 10, color: "#556" }}>Total Estate</div>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: "#f7931a" }}>{fmtFull(totalEstateUSD)}</div>
+                    </div>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#444" strokeWidth="2" style={{ transform: executorCardCollapsed ? "none" : "rotate(180deg)", transition: "transform 0.2s", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
+                  </div>
+                </div>
+                {/* Expanded content */}
+                {!executorCardCollapsed && (
+                  <div style={{ borderTop: "1px solid #1a3a6a22", padding: "14px 16px 16px" }}>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 10, color: "#556", marginBottom: 6 }}>Change executor</div>
+                      <select value={inheritanceExecutorId}
+                        onChange={e => saveInheritanceAllocs(inheritanceAllocs, e.target.value)}
+                        style={{ background: "#0d1f3c", border: "1px solid #1a3a6a", borderRadius: 8, padding: "6px 10px", fontSize: 12, color: "#4d8aff", cursor: "pointer", width: "100%" }}>
+                        {MEMBERS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                      </select>
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 10, color: "#556", marginBottom: 8 }}>Beneficiaries</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {allNonJorge.map(m => {
+                          const included = activeBeneficiaryIds.includes(m.id);
+                          return (
+                            <div key={m.id} onClick={() => {
+                              const next = included ? activeBeneficiaryIds.filter(id => id !== m.id) : [...activeBeneficiaryIds, m.id];
+                              saveInheritanceAllocs(inheritanceAllocs, inheritanceExecutorId, next);
+                            }} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                              <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${included ? "#00e676" : "#333"}`, background: included ? "#00e67622" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                                {included && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>}
+                              </div>
+                              <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#161616", border: "1px solid #2a2a2a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#888" }}>{m.avatar}</div>
+                              <span style={{ fontSize: 12, color: included ? "#fff" : "#555" }}>{m.name}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 10, color: "#556", marginBottom: 8 }}>Estate holdings</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {[...["BTC","ETH"].filter(c => jorgeHoldings[c] > 0.00001), ...(altCoins.length > 0 ? ["_alt"] : [])].map(c => {
+                        if (c === "_alt") return (
+                          <div key="_alt" style={{ background: "#ffffff08", borderRadius: 8, padding: "6px 10px", minWidth: 80 }}>
+                            <div style={{ fontSize: 10, color: "#556" }}>Altcoins ({altCoins.length})</div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>—</div>
+                            <div style={{ fontSize: 10, color: "#888" }}>{fmtFull(allAltsUSD)}</div>
+                          </div>
+                        );
+                        return (
+                          <div key={c} style={{ background: "#ffffff08", borderRadius: 8, padding: "6px 10px", minWidth: 80 }}>
+                            <div style={{ fontSize: 10, color: "#556" }}>{c}</div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>{(jorgeHoldings[c] || 0).toFixed(c === "BTC" ? 5 : 4)}</div>
+                            <div style={{ fontSize: 10, color: "#888" }}>{fmtFull((jorgeHoldings[c] || 0) * (COIN_PRICES[c] || 0))}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Unallocated warning */}
+              {unallocated.length > 0 && (
+                <div style={{ background: "#1e1000", border: "1px solid #f7931a33", borderRadius: 12, padding: "10px 14px", marginBottom: 14, display: "flex", gap: 10, alignItems: "center" }}>
+                  <span style={{ fontSize: 18, lineHeight: 1 }}>⚠</span>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#f7931a" }}>Unallocated</div>
+                    <div style={{ fontSize: 11, color: "#888" }}>{unallocated.join(", ")} — under 100% allocated</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Pie chart */}
+              {pieData.length > 0 && (
+                <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 16, padding: "16px", marginBottom: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 12 }}>Allocation Split</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                    <ResponsiveContainer width={140} height={140}>
+                      <PieChart>
+                        <Pie data={pieData} cx="50%" cy="50%" innerRadius={38} outerRadius={62} paddingAngle={3} dataKey="value">
+                          {pieData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                        </Pie>
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div style={{ flex: 1 }}>
+                      {pieData.map(d => (
+                        <div key={d.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <div style={{ width: 8, height: 8, borderRadius: 2, background: d.color, flexShrink: 0 }} />
+                            <span style={{ fontSize: 12, color: "#aaa" }}>{d.name}</span>
+                          </div>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: "#fff" }}>{fmtFull(d.value)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Beneficiary section header + edit toggle */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>Beneficiaries</div>
+                <button onClick={() => {
+                  if (inheritanceEditMode) { setInheritanceEditMode(false); setInheritanceDraft({}); }
+                  else { setInheritanceDraft(JSON.parse(JSON.stringify(inheritanceAllocs))); setInheritanceEditMode(true); }
+                }} style={{ background: inheritanceEditMode ? "#ff4a4a18" : "#ffffff0e", border: `1px solid ${inheritanceEditMode ? "#ff4a4a44" : "#2a2a2a"}`, borderRadius: 8, padding: "5px 12px", fontSize: 11, fontWeight: 600, color: inheritanceEditMode ? "#ff6b6b" : "#888", cursor: "pointer" }}>
+                  {inheritanceEditMode ? "Cancel" : "Edit Allocations"}
+                </button>
+              </div>
+
+              {/* Edit panel — BTC / ETH / Altcoins only */}
+              {inheritanceEditMode && (
+                <div style={{ background: "#081808", border: "1px solid #00e67622", borderRadius: 14, padding: "14px", marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, color: "#00e676", fontWeight: 600, marginBottom: 12 }}>Set % per beneficiary. BTC and ETH are split individually. Altcoins % applies to all other coins equally.</div>
+                  {ALLOC_GROUPS.map(group => {
+                    const totalPct = beneficiaries.reduce((s, m) => s + (parseFloat(inheritanceDraft[group]?.[m.id]) || 0), 0);
+                    return (
+                      <div key={group} style={{ marginBottom: 16 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 6 }}>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{groupLabel(group)}</div>
+                            <div style={{ fontSize: 10, color: "#556" }}>{groupSub(group)}</div>
+                          </div>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: totalPct > 100 ? "#ff4a4a" : totalPct >= 99.9 ? "#00e676" : "#f7931a" }}>{totalPct.toFixed(0)}%</span>
+                        </div>
+                        {beneficiaries.map(m => (
+                          <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                            <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#161616", border: "1px solid #2a2a2a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#888", flexShrink: 0 }}>{m.avatar}</div>
+                            <span style={{ fontSize: 11, color: "#777", flex: 1 }}>{m.name.split(" ")[0]}</span>
+                            <input type="number" min="0" max="100" placeholder="0"
+                              value={inheritanceDraft[group]?.[m.id] ?? ""}
+                              onChange={e => {
+                                const val = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
+                                setInheritanceDraft(prev => ({ ...prev, [group]: { ...(prev[group] || {}), [m.id]: val } }));
+                              }}
+                              style={{ width: 54, background: "#111", border: "1px solid #2a2a2a", borderRadius: 6, padding: "4px 6px", fontSize: 12, color: "#fff", textAlign: "center" }}
+                            />
+                            <span style={{ fontSize: 11, color: "#444" }}>%</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
+                  <button disabled={inheritanceSaving} onClick={async () => { await saveInheritanceAllocs(inheritanceDraft, inheritanceExecutorId); setInheritanceEditMode(false); setInheritanceDraft({}); }}
+                    style={{ width: "100%", background: "#00e676", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, color: "#000", cursor: "pointer", marginTop: 4 }}>
+                    {inheritanceSaving ? "Saving…" : "Save Allocations"}
+                  </button>
+                </div>
+              )}
+
+              {/* Beneficiary cards */}
+              {beneficiaryTotals.map(b => {
+                const isExpanded = expandedBeneficiary === b.id;
+                const combinedUSD = b.ownUSD + b.inheritedUSD;
+                return (
+                  <div key={b.id} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 16, marginBottom: 10, overflow: "hidden" }}>
+                    <div onClick={() => setExpandedBeneficiary(isExpanded ? null : b.id)} style={{ padding: "14px 16px", cursor: "pointer" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#161616", border: `2px solid ${b.color}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: b.color, flexShrink: 0 }}>{b.avatar}</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>{b.name}</div>
+                          <div style={{ fontSize: 11, color: "#444", marginTop: 1 }}>Own + inheritance</div>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ fontSize: 18, fontWeight: 800, color: "#fff" }}>{fmtFull(combinedUSD)}</div>
+                          <div style={{ fontSize: 11, color: b.inheritedUSD > 0 ? b.color : "#444", marginTop: 1 }}>
+                            {b.inheritedUSD > 0 ? `↓ ${fmtFull(b.inheritedUSD)} estate` : "No allocation"}
+                          </div>
+                        </div>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#444" strokeWidth="2" style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
+                      </div>
+                    </div>
+                    {isExpanded && (
+                      <div style={{ borderTop: "1px solid #181818", padding: "12px 16px 14px" }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#333", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>Own Holdings</div>
+                        {Object.entries(b.holdings || {}).filter(([,q]) => q > 0.00001).length === 0
+                          ? <div style={{ fontSize: 11, color: "#333", marginBottom: 10 }}>No holdings recorded</div>
+                          : Object.entries(b.holdings || {}).filter(([,q]) => q > 0.00001).map(([coin, qty]) => (
+                            <div key={coin} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                              <div style={{ display: "flex", gap: 8 }}>
+                                <span style={{ fontSize: 11, fontWeight: 700, color: "#888", minWidth: 36 }}>{coin}</span>
+                                <span style={{ fontSize: 11, color: "#444" }}>{qty < 1 ? qty.toFixed(5) : qty.toFixed(3)}</span>
+                              </div>
+                              <span style={{ fontSize: 11, color: "#666" }}>{fmtFull(qty * (COIN_PRICES[coin] || 0))}</span>
+                            </div>
+                          ))
+                        }
+                        {b.inheritedCoins.length > 0 && (
+                          <>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: "#333", letterSpacing: "0.08em", textTransform: "uppercase", margin: "12px 0 8px" }}>From Estate (Jorge)</div>
+                            {b.inheritedCoins.map(({ coin, pct, qty, usd }) => (
+                              <div key={coin} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                  <span style={{ fontSize: 11, fontWeight: 700, color: "#888", minWidth: 36 }}>{coin}</span>
+                                  <span style={{ fontSize: 10, background: b.color + "22", color: b.color, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>{pct}%</span>
+                                  <span style={{ fontSize: 11, color: "#444" }}>{qty < 1 ? qty.toFixed(5) : qty.toFixed(3)}</span>
+                                </div>
+                                <span style={{ fontSize: 11, color: b.color }}>{fmtFull(usd)}</span>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                        <div style={{ borderTop: "1px solid #1a1a1a", marginTop: 10, paddingTop: 10, display: "flex", justifyContent: "space-between" }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: "#aaa" }}>Combined Total</span>
+                          <span style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>{fmtFull(combinedUSD)}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* AI Executive Summary */}
+              <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 16, padding: "16px", marginTop: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>AI Executive Summary</div>
+                    <div style={{ fontSize: 11, color: "#444", marginTop: 2 }}>For the executor · annual reference</div>
+                  </div>
+                  <button onClick={() => generateInheritanceSummary(jorgeHoldings, inheritanceAllocs)} disabled={inheritanceAiLoading}
+                    style={{ background: "linear-gradient(135deg,#0d1b3e,#1a2f5e)", border: "1px solid #2979ff44", borderRadius: 10, padding: "8px 14px", fontSize: 11, fontWeight: 700, color: "#4d8aff", cursor: "pointer", opacity: inheritanceAiLoading ? 0.6 : 1 }}>
+                    {inheritanceAiLoading ? "Generating…" : "✦ Generate"}
+                  </button>
+                </div>
+                {inheritanceAiError && <div style={{ fontSize: 11, color: "#ff6b6b", marginBottom: 8 }}>{inheritanceAiError}</div>}
+                {inheritanceAiSummary
+                  ? <div style={{ fontSize: 12, color: "#aaa", lineHeight: 1.8, whiteSpace: "pre-wrap" }}>{inheritanceAiSummary}</div>
+                  : !inheritanceAiLoading && <div style={{ fontSize: 11, color: "#2a2a2a", textAlign: "center", padding: "20px 0" }}>Press Generate to create a professional executive summary for the executor.</div>
+                }
+                {inheritanceAiLoading && <div style={{ fontSize: 11, color: "#444", textAlign: "center", padding: "20px 0" }}>Generating summary…</div>}
+              </div>
+            </div>
+          );
+        })()}
+
       </div>
 
       {/* ADD MEMBER MODAL */}
@@ -4873,311 +5177,6 @@ export default function CryptoApp() {
           </div>
         </div>
       )}
-
-      {/* ── INHERITANCE PAGE ── */}
-      {page === "inheritance" && (() => {
-        const jorge = MEMBERS.find(m => m.id === "jorge");
-        const executor = MEMBERS.find(m => m.id === inheritanceExecutorId) || MEMBERS[0];
-        const jorgeHoldings = jorge?.holdings || {};
-        const jorgeCoins = Object.keys(jorgeHoldings).filter(c => (jorgeHoldings[c] || 0) > 0.00001);
-        const altCoins = jorgeCoins.filter(c => c !== "BTC" && c !== "ETH");
-        const allAltsUSD = altCoins.reduce((s, c) => s + (jorgeHoldings[c] || 0) * (COIN_PRICES[c] || 0), 0);
-        const totalEstateUSD = jorgeCoins.reduce((s, c) => s + (jorgeHoldings[c] || 0) * (COIN_PRICES[c] || 0), 0);
-        const allNonJorge = MEMBERS.filter(m => m.id !== "jorge");
-        const activeBeneficiaryIds = inheritanceBeneficiaryIds ?? allNonJorge.map(m => m.id);
-        const beneficiaries = allNonJorge.filter(m => activeBeneficiaryIds.includes(m.id));
-        const PIE_COLORS = ["#f7931a","#00e676","#2979ff","#ff4081","#aa00ff","#ffab40","#00bcd4","#ff6b6b","#69db7c","#ffd43b"];
-
-        // Helper: get effective pct for a coin (alts use _altcoins group)
-        const getPct = (coin, memberId) => {
-          if (coin === "BTC" || coin === "ETH") return inheritanceAllocs[coin]?.[memberId] || 0;
-          return inheritanceAllocs._altcoins?.[memberId] || 0;
-        };
-        const getDraftPct = (coin, memberId) => {
-          if (coin === "BTC" || coin === "ETH") return inheritanceDraft[coin]?.[memberId] || 0;
-          return inheritanceDraft._altcoins?.[memberId] || 0;
-        };
-
-        const beneficiaryTotals = beneficiaries.map((m, i) => {
-          const btcPct = getPct("BTC", m.id);
-          const ethPct = getPct("ETH", m.id);
-          const altPct = inheritanceAllocs._altcoins?.[m.id] || 0;
-          const inheritedCoins = [
-            ...(jorgeHoldings.BTC > 0.00001 && btcPct > 0 ? [{ coin: "BTC", pct: btcPct, qty: jorgeHoldings.BTC * btcPct / 100, usd: jorgeHoldings.BTC * btcPct / 100 * (COIN_PRICES.BTC || 0) }] : []),
-            ...(jorgeHoldings.ETH > 0.00001 && ethPct > 0 ? [{ coin: "ETH", pct: ethPct, qty: jorgeHoldings.ETH * ethPct / 100, usd: jorgeHoldings.ETH * ethPct / 100 * (COIN_PRICES.ETH || 0) }] : []),
-            ...(altCoins.length > 0 && altPct > 0 ? [{ coin: "Altcoins", pct: altPct, qty: null, usd: allAltsUSD * altPct / 100 }] : []),
-          ];
-          const inheritedUSD = inheritedCoins.reduce((s, x) => s + x.usd, 0);
-          const ownUSD = Object.entries(m.holdings || {}).reduce((s, [c, q]) => s + q * (COIN_PRICES[c] || 0), 0);
-          return { ...m, inheritedCoins, inheritedUSD, ownUSD, color: PIE_COLORS[i % PIE_COLORS.length] };
-        });
-
-        const pieData = beneficiaryTotals.filter(b => b.inheritedUSD > 0)
-          .map(b => ({ name: b.name.split(" ")[0], value: Math.round(b.inheritedUSD), color: b.color }));
-
-        const ALLOC_GROUPS = [
-          ...(jorgeHoldings.BTC > 0.00001 ? ["BTC"] : []),
-          ...(jorgeHoldings.ETH > 0.00001 ? ["ETH"] : []),
-          ...(altCoins.length > 0 ? ["_altcoins"] : []),
-        ];
-        const groupLabel = g => g === "_altcoins" ? "Altcoins" : g;
-        const groupSub = g => g === "_altcoins" ? `${altCoins.length} coins · ${fmtFull(allAltsUSD)}` : fmtFull((jorgeHoldings[g] || 0) * (COIN_PRICES[g] || 0));
-
-        const unallocated = ALLOC_GROUPS.filter(g => {
-          const total = beneficiaries.reduce((s, m) => s + (inheritanceAllocs[g]?.[m.id] || 0), 0);
-          return total < 99.9;
-        }).map(groupLabel);
-
-        return (
-          <div className="fade-in" style={{ padding: "18px 18px 120px" }}>
-
-            {/* Executor / Estate Card — collapsible */}
-            <div style={{ background: "linear-gradient(135deg,#0a1628,#0f2040)", border: "1px solid #1a3a6a", borderRadius: 16, marginBottom: 16, overflow: "hidden" }}>
-              {/* Always-visible header row */}
-              <div onClick={() => setExecutorCardCollapsed(v => !v)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", cursor: "pointer" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ width: 36, height: 36, borderRadius: "50%", background: "#0d2040", border: "2px solid #2979ff44", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "#4d8aff", flexShrink: 0 }}>{executor?.avatar}</div>
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: "#2979ff", letterSpacing: "0.08em", textTransform: "uppercase" }}>Estate Executor</div>
-                    <div style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{executor?.name}</div>
-                  </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 10, color: "#556" }}>Total Estate</div>
-                    <div style={{ fontSize: 16, fontWeight: 800, color: "#f7931a" }}>{fmtFull(totalEstateUSD)}</div>
-                  </div>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#444" strokeWidth="2" style={{ transform: executorCardCollapsed ? "none" : "rotate(180deg)", transition: "transform 0.2s", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
-                </div>
-              </div>
-              {/* Expanded content */}
-              {!executorCardCollapsed && (
-                <div style={{ borderTop: "1px solid #1a3a6a22", padding: "14px 16px 16px" }}>
-                  <div style={{ marginBottom: 14 }}>
-                    <div style={{ fontSize: 10, color: "#556", marginBottom: 6 }}>Change executor</div>
-                    <select value={inheritanceExecutorId}
-                      onChange={e => saveInheritanceAllocs(inheritanceAllocs, e.target.value)}
-                      style={{ background: "#0d1f3c", border: "1px solid #1a3a6a", borderRadius: 8, padding: "6px 10px", fontSize: 12, color: "#4d8aff", cursor: "pointer", width: "100%" }}>
-                      {MEMBERS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                    </select>
-                  </div>
-                  <div style={{ marginBottom: 14 }}>
-                    <div style={{ fontSize: 10, color: "#556", marginBottom: 8 }}>Beneficiaries</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {allNonJorge.map(m => {
-                        const included = activeBeneficiaryIds.includes(m.id);
-                        return (
-                          <div key={m.id} onClick={() => {
-                            const next = included ? activeBeneficiaryIds.filter(id => id !== m.id) : [...activeBeneficiaryIds, m.id];
-                            saveInheritanceAllocs(inheritanceAllocs, inheritanceExecutorId, next);
-                          }} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-                            <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${included ? "#00e676" : "#333"}`, background: included ? "#00e67622" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                              {included && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>}
-                            </div>
-                            <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#161616", border: "1px solid #2a2a2a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#888" }}>{m.avatar}</div>
-                            <span style={{ fontSize: 12, color: included ? "#fff" : "#555" }}>{m.name}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 10, color: "#556", marginBottom: 8 }}>Estate holdings</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {[...["BTC","ETH"].filter(c => jorgeHoldings[c] > 0.00001), ...(altCoins.length > 0 ? ["_alt"] : [])].map(c => {
-                      if (c === "_alt") return (
-                        <div key="_alt" style={{ background: "#ffffff08", borderRadius: 8, padding: "6px 10px", minWidth: 80 }}>
-                          <div style={{ fontSize: 10, color: "#556" }}>Altcoins ({altCoins.length})</div>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>—</div>
-                          <div style={{ fontSize: 10, color: "#888" }}>{fmtFull(allAltsUSD)}</div>
-                        </div>
-                      );
-                      return (
-                        <div key={c} style={{ background: "#ffffff08", borderRadius: 8, padding: "6px 10px", minWidth: 80 }}>
-                          <div style={{ fontSize: 10, color: "#556" }}>{c}</div>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>{(jorgeHoldings[c] || 0).toFixed(c === "BTC" ? 5 : 4)}</div>
-                          <div style={{ fontSize: 10, color: "#888" }}>{fmtFull((jorgeHoldings[c] || 0) * (COIN_PRICES[c] || 0))}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Unallocated warning */}
-            {unallocated.length > 0 && (
-              <div style={{ background: "#1e1000", border: "1px solid #f7931a33", borderRadius: 12, padding: "10px 14px", marginBottom: 14, display: "flex", gap: 10, alignItems: "center" }}>
-                <span style={{ fontSize: 18, lineHeight: 1 }}>⚠</span>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "#f7931a" }}>Unallocated</div>
-                  <div style={{ fontSize: 11, color: "#888" }}>{unallocated.join(", ")} — under 100% allocated</div>
-                </div>
-              </div>
-            )}
-
-            {/* Pie chart */}
-            {pieData.length > 0 && (
-              <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 16, padding: "16px", marginBottom: 16 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 12 }}>Allocation Split</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                  <ResponsiveContainer width={140} height={140}>
-                    <PieChart>
-                      <Pie data={pieData} cx="50%" cy="50%" innerRadius={38} outerRadius={62} paddingAngle={3} dataKey="value">
-                        {pieData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div style={{ flex: 1 }}>
-                    {pieData.map(d => (
-                      <div key={d.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <div style={{ width: 8, height: 8, borderRadius: 2, background: d.color, flexShrink: 0 }} />
-                          <span style={{ fontSize: 12, color: "#aaa" }}>{d.name}</span>
-                        </div>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: "#fff" }}>{fmtFull(d.value)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Beneficiary section header + edit toggle */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>Beneficiaries</div>
-              <button onClick={() => {
-                if (inheritanceEditMode) { setInheritanceEditMode(false); setInheritanceDraft({}); }
-                else { setInheritanceDraft(JSON.parse(JSON.stringify(inheritanceAllocs))); setInheritanceEditMode(true); }
-              }} style={{ background: inheritanceEditMode ? "#ff4a4a18" : "#ffffff0e", border: `1px solid ${inheritanceEditMode ? "#ff4a4a44" : "#2a2a2a"}`, borderRadius: 8, padding: "5px 12px", fontSize: 11, fontWeight: 600, color: inheritanceEditMode ? "#ff6b6b" : "#888", cursor: "pointer" }}>
-                {inheritanceEditMode ? "Cancel" : "Edit Allocations"}
-              </button>
-            </div>
-
-            {/* Edit panel — BTC / ETH / Altcoins only */}
-            {inheritanceEditMode && (
-              <div style={{ background: "#081808", border: "1px solid #00e67622", borderRadius: 14, padding: "14px", marginBottom: 14 }}>
-                <div style={{ fontSize: 11, color: "#00e676", fontWeight: 600, marginBottom: 12 }}>Set % per beneficiary. BTC and ETH are split individually. Altcoins % applies to all other coins equally.</div>
-                {ALLOC_GROUPS.map(group => {
-                  const totalPct = beneficiaries.reduce((s, m) => s + (parseFloat(inheritanceDraft[group]?.[m.id]) || 0), 0);
-                  return (
-                    <div key={group} style={{ marginBottom: 16 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 6 }}>
-                        <div>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{groupLabel(group)}</div>
-                          <div style={{ fontSize: 10, color: "#556" }}>{groupSub(group)}</div>
-                        </div>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: totalPct > 100 ? "#ff4a4a" : totalPct >= 99.9 ? "#00e676" : "#f7931a" }}>{totalPct.toFixed(0)}%</span>
-                      </div>
-                      {beneficiaries.map(m => (
-                        <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-                          <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#161616", border: "1px solid #2a2a2a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#888", flexShrink: 0 }}>{m.avatar}</div>
-                          <span style={{ fontSize: 11, color: "#777", flex: 1 }}>{m.name.split(" ")[0]}</span>
-                          <input type="number" min="0" max="100" placeholder="0"
-                            value={inheritanceDraft[group]?.[m.id] ?? ""}
-                            onChange={e => {
-                              const val = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
-                              setInheritanceDraft(prev => ({ ...prev, [group]: { ...(prev[group] || {}), [m.id]: val } }));
-                            }}
-                            style={{ width: 54, background: "#111", border: "1px solid #2a2a2a", borderRadius: 6, padding: "4px 6px", fontSize: 12, color: "#fff", textAlign: "center" }}
-                          />
-                          <span style={{ fontSize: 11, color: "#444" }}>%</span>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })}
-                <button disabled={inheritanceSaving} onClick={async () => { await saveInheritanceAllocs(inheritanceDraft, inheritanceExecutorId); setInheritanceEditMode(false); setInheritanceDraft({}); }}
-                  style={{ width: "100%", background: "#00e676", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, color: "#000", cursor: "pointer", marginTop: 4 }}>
-                  {inheritanceSaving ? "Saving…" : "Save Allocations"}
-                </button>
-              </div>
-            )}
-
-            {/* Beneficiary cards */}
-            {beneficiaryTotals.map(b => {
-              const isExpanded = expandedBeneficiary === b.id;
-              const combinedUSD = b.ownUSD + b.inheritedUSD;
-              return (
-                <div key={b.id} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 16, marginBottom: 10, overflow: "hidden" }}>
-                  <div onClick={() => setExpandedBeneficiary(isExpanded ? null : b.id)} style={{ padding: "14px 16px", cursor: "pointer" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                      <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#161616", border: `2px solid ${b.color}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: b.color, flexShrink: 0 }}>{b.avatar}</div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>{b.name}</div>
-                        <div style={{ fontSize: 11, color: "#444", marginTop: 1 }}>Own + inheritance</div>
-                      </div>
-                      <div style={{ textAlign: "right" }}>
-                        <div style={{ fontSize: 18, fontWeight: 800, color: "#fff" }}>{fmtFull(combinedUSD)}</div>
-                        <div style={{ fontSize: 11, color: b.inheritedUSD > 0 ? b.color : "#444", marginTop: 1 }}>
-                          {b.inheritedUSD > 0 ? `↓ ${fmtFull(b.inheritedUSD)} estate` : "No allocation"}
-                        </div>
-                      </div>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#444" strokeWidth="2" style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
-                    </div>
-                  </div>
-                  {isExpanded && (
-                    <div style={{ borderTop: "1px solid #181818", padding: "12px 16px 14px" }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: "#333", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>Own Holdings</div>
-                      {Object.entries(b.holdings || {}).filter(([,q]) => q > 0.00001).length === 0
-                        ? <div style={{ fontSize: 11, color: "#333", marginBottom: 10 }}>No holdings recorded</div>
-                        : Object.entries(b.holdings || {}).filter(([,q]) => q > 0.00001).map(([coin, qty]) => (
-                          <div key={coin} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
-                            <div style={{ display: "flex", gap: 8 }}>
-                              <span style={{ fontSize: 11, fontWeight: 700, color: "#888", minWidth: 36 }}>{coin}</span>
-                              <span style={{ fontSize: 11, color: "#444" }}>{qty < 1 ? qty.toFixed(5) : qty.toFixed(3)}</span>
-                            </div>
-                            <span style={{ fontSize: 11, color: "#666" }}>{fmtFull(qty * (COIN_PRICES[coin] || 0))}</span>
-                          </div>
-                        ))
-                      }
-                      {b.inheritedCoins.length > 0 && (
-                        <>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: "#333", letterSpacing: "0.08em", textTransform: "uppercase", margin: "12px 0 8px" }}>From Estate (Jorge)</div>
-                          {b.inheritedCoins.map(({ coin, pct, qty, usd }) => (
-                            <div key={coin} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
-                              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                                <span style={{ fontSize: 11, fontWeight: 700, color: "#888", minWidth: 36 }}>{coin}</span>
-                                <span style={{ fontSize: 10, background: b.color + "22", color: b.color, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>{pct}%</span>
-                                <span style={{ fontSize: 11, color: "#444" }}>{qty < 1 ? qty.toFixed(5) : qty.toFixed(3)}</span>
-                              </div>
-                              <span style={{ fontSize: 11, color: b.color }}>{fmtFull(usd)}</span>
-                            </div>
-                          ))}
-                        </>
-                      )}
-                      <div style={{ borderTop: "1px solid #1a1a1a", marginTop: 10, paddingTop: 10, display: "flex", justifyContent: "space-between" }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "#aaa" }}>Combined Total</span>
-                        <span style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>{fmtFull(combinedUSD)}</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            {/* AI Executive Summary */}
-            <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 16, padding: "16px", marginTop: 8 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>AI Executive Summary</div>
-                  <div style={{ fontSize: 11, color: "#444", marginTop: 2 }}>For the executor · annual reference</div>
-                </div>
-                <button onClick={() => generateInheritanceSummary(jorgeHoldings, inheritanceAllocs)} disabled={inheritanceAiLoading}
-                  style={{ background: "linear-gradient(135deg,#0d1b3e,#1a2f5e)", border: "1px solid #2979ff44", borderRadius: 10, padding: "8px 14px", fontSize: 11, fontWeight: 700, color: "#4d8aff", cursor: "pointer", opacity: inheritanceAiLoading ? 0.6 : 1 }}>
-                  {inheritanceAiLoading ? "Generating…" : "✦ Generate"}
-                </button>
-              </div>
-              {inheritanceAiError && <div style={{ fontSize: 11, color: "#ff6b6b", marginBottom: 8 }}>{inheritanceAiError}</div>}
-              {inheritanceAiSummary
-                ? <div style={{ fontSize: 12, color: "#aaa", lineHeight: 1.8, whiteSpace: "pre-wrap" }}>{inheritanceAiSummary}</div>
-                : !inheritanceAiLoading && <div style={{ fontSize: 11, color: "#2a2a2a", textAlign: "center", padding: "20px 0" }}>Press Generate to create a professional executive summary for the executor.</div>
-              }
-              {inheritanceAiLoading && <div style={{ fontSize: 11, color: "#444", textAlign: "center", padding: "20px 0" }}>Generating summary…</div>}
-            </div>
-          </div>
-        );
-      })()}
-
       {/* FOOTER */}
       <div className="bottom-nav-bar" style={{
         position: "fixed", bottom: 0, left: 0, right: 0,
