@@ -3857,6 +3857,23 @@ export default function CryptoApp() {
                 </div>
               )}
             </div>
+
+            {/* Floating Add Transaction button — pre-fills this member */}
+            <button
+              onClick={() => {
+                setTxForm(f => ({ ...f, member: member.id }));
+                setAddTxOpen(true);
+              }}
+              style={{
+                position: "fixed", bottom: 90, right: 20,
+                width: 52, height: 52, borderRadius: "50%",
+                background: "#00e676", border: "none", cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                boxShadow: "0 4px 20px rgba(0,230,118,0.4)",
+                zIndex: 60, fontSize: 26, fontWeight: 300, color: "#000", lineHeight: 1,
+              }}>
+              +
+            </button>
           </div>
         )}
 
