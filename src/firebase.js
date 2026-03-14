@@ -13,11 +13,33 @@ const firebaseConfig = {
   measurementId:     import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
-const app       = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
-export const auth = getAuth(app);
+const requiredKeys = ['apiKey', 'authDomain', 'projectId', 'appId'];
+export const firebaseConfigured = requiredKeys.every(key => Boolean(firebaseConfig[key]));
+
+let app = null;
+let db = null;
+let auth = null;
+let firebaseInitError = null;
+
+if (firebaseConfigured) {
+  try {
+    app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    auth = getAuth(app);
+  } catch (error) {
+    firebaseInitError = error;
+    console.error('Firebase initialization failed:', error);
+  }
+} else {
+  console.warn('Firebase disabled: missing VITE_FIREBASE_* environment variables.');
+}
+
+export { app, db, auth, firebaseInitError };
+export const firebaseReady = Boolean(db);
 
 // Analytics only runs in browser environments
-export const analytics = isSupported().then(yes => yes ? getAnalytics(app) : null);
+export const analytics = app && firebaseConfig.measurementId
+  ? isSupported().then(yes => yes ? getAnalytics(app) : null).catch(() => null)
+  : Promise.resolve(null);
 
 export default app;

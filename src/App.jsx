@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, BarChart, Bar } from "recharts";
 import { collection, addDoc, deleteDoc, updateDoc, doc, setDoc, onSnapshot, query, orderBy, serverTimestamp } from "firebase/firestore";
-import { db } from "./firebase";
+import { db, firebaseConfigured, firebaseInitError, firebaseReady } from "./firebase";
 
 // ─── STATIC FALLBACK PRICES (used when CMC API key is not set) ───────────────
 const STATIC_PRICES = {
@@ -1874,12 +1874,26 @@ export default function CryptoApp() {
   const [coinChartRange, setCoinChartRange] = useState("ALL");
   const [memberBenchmark, setMemberBenchmark] = useState("portfolio"); // "portfolio" | "btc" | "spy"
   const sliderRef = useRef(null);
+  const firestoreStatusText = !firebaseConfigured
+    ? "Missing Vercel Firebase env vars"
+    : firebaseReady
+      ? "Connected"
+      : firebaseInitError
+        ? "Initialization failed"
+        : "Unavailable";
+  const firestoreDisabledMessage = !firebaseConfigured
+    ? "Firebase features are disabled until Vercel has the VITE_FIREBASE_* environment variables."
+    : "Firebase is unavailable right now. The app is running in static mode.";
 
   // Firestore-persisted transactions (new entries added via the form)
   const [firestoreTxs, setFirestoreTxs] = useState([]);
   const [firestoreReady, setFirestoreReady] = useState(false);
 
   useEffect(() => {
+    if (!firebaseReady) {
+      setFirestoreReady(true);
+      return;
+    }
     const q = query(collection(db, "transactions"), orderBy("date", "asc"));
     const unsub = onSnapshot(q, snapshot => {
       const docs = snapshot.docs.map(d => ({ ...d.data(), id: d.id }));
@@ -1895,6 +1909,7 @@ export default function CryptoApp() {
   // Portfolio snapshots — one document per day keyed by date string
   const [snapshots, setSnapshots] = useState([]);
   useEffect(() => {
+    if (!firebaseReady) return;
     const q = query(collection(db, "snapshots"), orderBy("date", "asc"));
     const unsub = onSnapshot(q, snap => {
       setSnapshots(snap.docs.map(d => d.data()));
@@ -1906,11 +1921,51 @@ export default function CryptoApp() {
 
   // Form state for Add Transaction modal
   const today = new Date().toISOString().split("T")[0];
+  const [txModalMode, setTxModalMode] = useState("trade"); // "trade" | "transfer"
   const [txForm, setTxForm] = useState({
     member: "", coin: "BTC", type: "buy", qty: "", price: "", date: today, exchange: "Coinbase", notes: "",
   });
   const [txFormError, setTxFormError] = useState("");
   const [txSubmitting, setTxSubmitting] = useState(false);
+
+  // Transfer form state
+  const [transferForm, setTransferForm] = useState({ fromMember: "", toMember: "", coin: "BTC", qty: "", date: today });
+  const [transferError, setTransferError] = useState("");
+  const [transferSubmitting, setTransferSubmitting] = useState(false);
+
+  async function submitTransfer() {
+    if (!transferForm.fromMember) return setTransferError("Select sender.");
+    if (!transferForm.toMember) return setTransferError("Select recipient.");
+    if (transferForm.fromMember === transferForm.toMember) return setTransferError("Sender and recipient must be different.");
+    if (!transferForm.qty || parseFloat(transferForm.qty) <= 0) return setTransferError("Enter a valid quantity.");
+    if (!transferForm.date) return setTransferError("Select a date.");
+    if (!firebaseReady) return setTransferError(firestoreDisabledMessage);
+    setTransferSubmitting(true);
+    const qty = parseFloat(transferForm.qty);
+    const price = COIN_PRICES[transferForm.coin] || 0;
+    const usdTotal = parseFloat((qty * price).toFixed(2));
+    const transferId = `xfr_${Date.now()}`;
+    const fromName = MEMBERS.find(m => m.id === transferForm.fromMember)?.name || transferForm.fromMember;
+    const toName   = MEMBERS.find(m => m.id === transferForm.toMember)?.name   || transferForm.toMember;
+    try {
+      await addDoc(collection(db, "transactions"), {
+        member: transferForm.fromMember, coin: transferForm.coin, type: "sell",
+        qty, purchasePrice: price, usdTotal, date: transferForm.date,
+        exchange: "Transfer", fee: 0, notes: `Transfer → ${toName}`, transferId, createdAt: serverTimestamp(),
+      });
+      await addDoc(collection(db, "transactions"), {
+        member: transferForm.toMember, coin: transferForm.coin, type: "buy",
+        qty, purchasePrice: price, usdTotal, date: transferForm.date,
+        exchange: "Transfer", fee: 0, notes: `Transfer ← ${fromName}`, transferId, createdAt: serverTimestamp(),
+      });
+      setTransferError("");
+      setTransferForm({ fromMember: transferForm.fromMember, toMember: transferForm.toMember, coin: transferForm.coin, qty: "", date: today });
+      setAddTxOpen(false);
+    } catch (err) {
+      setTransferError("Failed to save: " + err.message);
+    }
+    setTransferSubmitting(false);
+  }
 
   function setTxField(field, value) {
     setTxForm(f => {
@@ -1924,6 +1979,7 @@ export default function CryptoApp() {
     if (!txForm.member) return setTxFormError("Select a portfolio.");
     if (!txForm.qty || parseFloat(txForm.qty) <= 0) return setTxFormError("Enter a valid quantity.");
     if (!txForm.date) return setTxFormError("Select a date.");
+    if (!firebaseReady) return setTxFormError(firestoreDisabledMessage);
     setTxSubmitting(true);
     const qty = parseFloat(txForm.qty);
     const price = parseFloat(txForm.price) || 0;
@@ -1979,6 +2035,7 @@ export default function CryptoApp() {
   async function submitEdit() {
     if (!editForm.qty || parseFloat(editForm.qty) <= 0) return setEditFormError("Enter a valid quantity.");
     if (!editForm.date) return setEditFormError("Select a date.");
+    if (!firebaseReady) return setEditFormError(firestoreDisabledMessage);
     setEditSubmitting(true);
     const qty = parseFloat(editForm.qty);
     const price = parseFloat(editForm.price) || 0;
@@ -2032,7 +2089,7 @@ export default function CryptoApp() {
 
   // Write one snapshot per day when prices are live and Firestore is ready
   useEffect(() => {
-    if (!firestoreReady || totalUSD <= 0 || snappedTodayRef.current) return;
+    if (!firebaseReady || !firestoreReady || totalUSD <= 0 || snappedTodayRef.current) return;
     const todayStr = new Date().toISOString().split("T")[0];
     const lastSnap = localStorage.getItem("last_snapshot_date");
     if (lastSnap === todayStr) { snappedTodayRef.current = true; return; }
@@ -2400,11 +2457,86 @@ export default function CryptoApp() {
           <>
             <div className="overlay" onClick={() => { setAddTxOpen(false); setTxFormError(""); }} />
             <div className="modal">
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                 <span style={{ fontWeight: 700, fontSize: 18 }}>Add Transaction</span>
-                <button style={{ background: "none", border: "none", color: "#666", cursor: "pointer", fontSize: 20 }} onClick={() => { setAddTxOpen(false); setTxFormError(""); }}>✕</button>
+                <button style={{ background: "none", border: "none", color: "#666", cursor: "pointer", fontSize: 20 }} onClick={() => { setAddTxOpen(false); setTxFormError(""); setTransferError(""); }}>✕</button>
               </div>
 
+              {/* Mode tabs */}
+              <div style={{ display: "flex", gap: 6, marginBottom: 18, background: "#111", borderRadius: 10, padding: 4 }}>
+                {[["trade", "⬆⬇ Buy / Sell"], ["transfer", "↔ Transfer"]].map(([mode, label]) => (
+                  <button key={mode} onClick={() => { setTxModalMode(mode); setTxFormError(""); setTransferError(""); }}
+                    style={{ flex: 1, padding: "8px", borderRadius: 8, border: "none", fontWeight: 600, fontSize: 13, cursor: "pointer",
+                      background: txModalMode === mode ? "#1e1e1e" : "transparent",
+                      color: txModalMode === mode ? "#fff" : "#555" }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {txModalMode === "transfer" ? (
+                /* ── TRANSFER FORM ── */
+                <div style={{ display: "grid", gap: 13 }}>
+                  <div style={{ background: "#0d1a0d", border: "1px solid #1a3a1a", borderRadius: 10, padding: "10px 14px", fontSize: 12, color: "#6fa" }}>
+                    Moves coins between family members. Creates a sell for the sender and a buy for the recipient at current market price.
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <div>
+                      <div className="lbl" style={{ marginBottom: 6 }}>From</div>
+                      <select value={transferForm.fromMember} onChange={e => setTransferForm(f => ({ ...f, fromMember: e.target.value }))}>
+                        <option value="">Select sender</option>
+                        {MEMBERS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <div className="lbl" style={{ marginBottom: 6 }}>To</div>
+                      <select value={transferForm.toMember} onChange={e => setTransferForm(f => ({ ...f, toMember: e.target.value }))}>
+                        <option value="">Select recipient</option>
+                        {MEMBERS.filter(m => m.id !== transferForm.fromMember).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <div>
+                      <div className="lbl" style={{ marginBottom: 6 }}>Coin</div>
+                      <select value={transferForm.coin} onChange={e => setTransferForm(f => ({ ...f, coin: e.target.value }))}>
+                        {Object.keys(STATIC_PRICES).sort().map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <div className="lbl" style={{ marginBottom: 6 }}>Quantity</div>
+                      <input type="number" min="0" step="any" placeholder="0.00000000"
+                        value={transferForm.qty} onChange={e => setTransferForm(f => ({ ...f, qty: e.target.value }))} />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="lbl" style={{ marginBottom: 6 }}>Date</div>
+                    <input type="date" value={transferForm.date} onChange={e => setTransferForm(f => ({ ...f, date: e.target.value }))} />
+                  </div>
+
+                  {/* Preview */}
+                  {parseFloat(transferForm.qty) > 0 && (
+                    <div style={{ background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: 10, padding: "12px 14px" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        <div><div style={{ fontSize: 10, color: "#555", marginBottom: 3 }}>Amount</div><div style={{ fontSize: 13, fontWeight: 700, color: "#ccc" }}>{parseFloat(transferForm.qty)} {transferForm.coin}</div></div>
+                        <div><div style={{ fontSize: 10, color: "#555", marginBottom: 3 }}>Est. Value</div><div style={{ fontSize: 13, fontWeight: 700, color: "#ccc" }}>{fmtFull(parseFloat(transferForm.qty) * (COIN_PRICES[transferForm.coin] || 0))}</div></div>
+                      </div>
+                    </div>
+                  )}
+
+                  {transferError && <div style={{ fontSize: 12, color: "#ff4444", textAlign: "center" }}>{transferError}</div>}
+
+                  <button onClick={submitTransfer} disabled={transferSubmitting}
+                    style={{ width: "100%", padding: "13px", borderRadius: 10, border: "none", fontWeight: 700, fontSize: 14,
+                      cursor: transferSubmitting ? "not-allowed" : "pointer", opacity: transferSubmitting ? 0.6 : 1,
+                      background: "#6fa8ff", color: "#000" }}>
+                    {transferSubmitting ? "Saving..." : "↔ Record Transfer"}
+                  </button>
+                </div>
+              ) : (
               <div style={{ display: "grid", gap: 13 }}>
                 {/* Portfolio */}
                 <div>
@@ -2495,6 +2627,7 @@ export default function CryptoApp() {
                   {txSubmitting ? "Saving..." : txForm.type === "buy" ? "⬆ Add Buy" : "⬇ Add Sell"}
                 </button>
               </div>
+              )}
             </div>
           </>
         );
@@ -2530,16 +2663,20 @@ export default function CryptoApp() {
             <div style={{ height: 1, background: "#3a3a3a", margin: "0 24px" }} />
 
             {/* Remove */}
-            <button className="options-sheet-row" onClick={async () => {
-              const txId = txOptionsOpen;
-              // Only Firestore transactions (string IDs) can be deleted
-              if (typeof txId === "string") {
-                try {
-                  await deleteDoc(doc(db, "transactions", txId));
-                } catch (err) {
-                  console.error("Delete failed:", err);
-                }
-              } else {
+	              <button className="options-sheet-row" onClick={async () => {
+	                const txId = txOptionsOpen;
+	                // Only Firestore transactions (string IDs) can be deleted
+	                if (typeof txId === "string") {
+	                  try {
+	                    if (!firebaseReady) {
+	                      alert(firestoreDisabledMessage);
+	                    } else {
+	                      await deleteDoc(doc(db, "transactions", txId));
+	                    }
+	                  } catch (err) {
+	                    console.error("Delete failed:", err);
+	                  }
+	                } else {
                 alert("Historical transactions cannot be removed here. They are part of the imported CSV data.");
               }
               setTxOptionsOpen(null);
@@ -3559,9 +3696,9 @@ export default function CryptoApp() {
                     <div style={{ fontSize: 18, fontWeight: 700, color: "#fff" }}>{coin}</div>
                     <div style={{ fontSize: 12, color: "#777" }}>{coinTxs.length} transactions</div>
                   </div>
-                  <button
-                    style={{ marginLeft: "auto", background: "#00e676", border: "none", borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, color: "#000", cursor: "pointer" }}
-                    onClick={() => setAddTxOpen(true)}>+ Add</button>
+	                  <button
+	                    style={{ marginLeft: "auto", background: firebaseReady ? "#00e676" : "#555", border: "none", borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, color: firebaseReady ? "#000" : "#111", cursor: firebaseReady ? "pointer" : "not-allowed", opacity: firebaseReady ? 1 : 0.75 }}
+	                    onClick={() => firebaseReady ? setAddTxOpen(true) : alert(firestoreDisabledMessage)}>+ Add</button>
                 </div>
 
                 {/* Expanded transaction detail cards */}
@@ -3954,7 +4091,11 @@ export default function CryptoApp() {
                 <div className="lbl" style={{ marginBottom: 5 }}>Total Transactions</div>
                 <div className="bignum" style={{ fontSize: 32 }}>{TRANSACTIONS.length}</div>
               </div>
-              <button style={{ background: "#00e676", border: "none", borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, color: "#000", cursor: "pointer" }} onClick={() => setAddTxOpen(true)}>+ Add</button>
+	              <button
+	                style={{ background: firebaseReady ? "#00e676" : "#555", border: "none", borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, color: firebaseReady ? "#000" : "#111", cursor: firebaseReady ? "pointer" : "not-allowed", opacity: firebaseReady ? 1 : 0.75 }}
+	                onClick={() => firebaseReady ? setAddTxOpen(true) : alert(firestoreDisabledMessage)}>
+	                + Add
+	              </button>
             </div>
 
             <div className="nobar" style={{ display: "flex", gap: 5, overflowX: "auto", marginBottom: 16, paddingBottom: 4 }}>
@@ -4023,13 +4164,18 @@ export default function CryptoApp() {
               <div style={{ padding: "12px 16px", borderBottom: "1px solid #161616" }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: "#444", letterSpacing: "0.08em", textTransform: "uppercase" }}>Firebase Connection</div>
               </div>
-              {[["Project","portfolio-f86b9"],["Auth Domain","portfolio-f86b9.firebaseapp.com"],["Database","Firestore"],["Status","Configured via environment"]].map(([k,v],i,a)=>(
-                <div key={k} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"11px 16px", borderBottom:i<a.length-1?"1px solid #0e0e0e":"none" }}>
-                  <span style={{ fontSize:12, color:"#666" }}>{k}</span>
-                  <span style={{ fontSize:12, fontWeight:600, color:k==="Status"?"#00e676":"#aaa" }}>{v}</span>
-                </div>
-              ))}
-            </div>
+	              {[["Project","portfolio-f86b9"],["Auth Domain","portfolio-f86b9.firebaseapp.com"],["Database","Firestore"],["Status",firestoreStatusText]].map(([k,v],i,a)=>(
+	                <div key={k} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"11px 16px", borderBottom:i<a.length-1?"1px solid #0e0e0e":"none" }}>
+	                  <span style={{ fontSize:12, color:"#666" }}>{k}</span>
+	                  <span style={{ fontSize:12, fontWeight:600, color:k==="Status" ? (firebaseReady ? "#00e676" : "#f7931a") : "#aaa" }}>{v}</span>
+	                </div>
+	              ))}
+	              {!firebaseReady && (
+	                <div style={{ padding: "12px 16px", borderTop: "1px solid #0e0e0e", fontSize: 11, color: "#777", lineHeight: 1.5 }}>
+	                  {firestoreDisabledMessage}
+	                </div>
+	              )}
+	            </div>
             <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden", marginBottom: 14 }}>
               <div style={{ padding: "12px 16px", borderBottom: "1px solid #161616" }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: "#444", letterSpacing: "0.08em", textTransform: "uppercase" }}>Display</div>
