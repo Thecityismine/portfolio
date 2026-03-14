@@ -2110,6 +2110,87 @@ export default function CryptoApp() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firestoreReady, totalUSD]);
 
+  // ── EXPORT / IMPORT CSV ────────────────────────────────────────────────────
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importError, setImportError] = useState("");
+  const [importPreview, setImportPreview] = useState([]); // parsed rows ready to save
+  const [importSaving, setImportSaving] = useState(false);
+  const [importDone, setImportDone] = useState(0);
+
+  function exportCSV(txList, filename) {
+    const header = "date,member,coin,type,qty,purchasePrice,usdTotal,exchange,fee,notes";
+    const escape = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const rows = txList.map(tx => [
+      tx.date || "", tx.member || "", tx.coin || "", tx.type || "",
+      tx.qty ?? "", tx.purchasePrice ?? "", tx.usdTotal ?? "",
+      tx.exchange || "", tx.fee ?? 0, escape(tx.notes || ""),
+    ].join(","));
+    const blob = new Blob([[header, ...rows].join("\n")], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename || `transactions_${today}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
+
+  function parseImportCSV(raw) {
+    setImportError("");
+    setImportPreview([]);
+    const lines = raw.trim().split("\n").map(l => l.trim()).filter(Boolean);
+    if (lines.length < 2) return setImportError("File must have a header row and at least one data row.");
+    const header = lines[0].toLowerCase().split(",").map(h => h.trim().replace(/"/g, ""));
+    const reqCols = ["date", "member", "coin", "type", "qty"];
+    const missing = reqCols.filter(c => !header.includes(c));
+    if (missing.length) return setImportError(`Missing required columns: ${missing.join(", ")}`);
+    const col = name => header.indexOf(name);
+    const parsed = [];
+    for (let i = 1; i < lines.length; i++) {
+      // Simple CSV split (handles quoted fields with commas)
+      const cells = [];
+      let cur = "", inQ = false;
+      for (const ch of lines[i] + ",") {
+        if (ch === '"') { inQ = !inQ; }
+        else if (ch === "," && !inQ) { cells.push(cur.trim()); cur = ""; }
+        else cur += ch;
+      }
+      const get = name => (cells[col(name)] || "").replace(/^"|"$/g, "").trim();
+      const qty = parseFloat(get("qty"));
+      const price = parseFloat(get("purchaseprice") || get("price") || "0") || 0;
+      if (!get("date") || !get("member") || !get("coin") || !["buy","sell"].includes(get("type").toLowerCase()) || isNaN(qty) || qty <= 0) continue;
+      parsed.push({
+        date: get("date"), member: get("member"), coin: get("coin").toUpperCase(),
+        type: get("type").toLowerCase(), qty,
+        purchasePrice: price,
+        usdTotal: parseFloat(get("usdtotal") || (qty * price).toFixed(2)) || qty * price,
+        exchange: get("exchange") || "Import",
+        fee: parseFloat(get("fee") || "0") || 0,
+        notes: get("notes") || "Imported from CSV",
+      });
+    }
+    if (!parsed.length) return setImportError("No valid rows found. Check that member IDs and types (buy/sell) are correct.");
+    setImportPreview(parsed);
+  }
+
+  async function saveImport() {
+    if (!firebaseReady) return setImportError(firestoreDisabledMessage);
+    if (!importPreview.length) return;
+    setImportSaving(true);
+    setImportDone(0);
+    let saved = 0;
+    for (const row of importPreview) {
+      try {
+        await addDoc(collection(db, "transactions"), { ...row, createdAt: serverTimestamp() });
+        saved++;
+        setImportDone(saved);
+      } catch { /* skip row on error */ }
+    }
+    setImportSaving(false);
+    setImportPreview([]);
+    setImportText("");
+    setImportOpen(false);
+  }
+
   // Computed chart data from real snapshots (falls back to synthetic when < 2 real points)
   const familyChartData =
     snapshotsToChart(snapshots, homeChartRange, s => s.totalUSD) ||
@@ -2340,8 +2421,8 @@ export default function CryptoApp() {
                 {
                   section: "Data",
                   items: [
-                    { label: "Import Transactions", sub: "CSV or Delta export", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>, action: () => { setPage("transactions"); setMenuOpen(false); } },
-                    { label: "Export Data", sub: "Download as CSV", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>, action: () => { setPage("transactions"); setMenuOpen(false); } },
+                    { label: "Import Transactions", sub: "CSV or Delta export", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>, action: () => { setImportOpen(true); setMenuOpen(false); } },
+                    { label: "Export Data", sub: "Download as CSV", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>, action: () => { exportCSV(TRANSACTIONS, `transactions_all_${today}.csv`); setMenuOpen(false); } },
                   ]
                 },
                 {
@@ -2690,6 +2771,123 @@ export default function CryptoApp() {
                 {typeof txOptionsOpen === "string" ? "Remove Transaction" : "Cannot Remove (Historical)"}
               </span>
             </button>
+          </div>
+        </>
+      )}
+
+      {/* IMPORT CSV MODAL */}
+      {importOpen && (
+        <>
+          <div className="overlay" onClick={() => { setImportOpen(false); setImportPreview([]); setImportText(""); setImportError(""); }} />
+          <div className="modal" style={{ maxHeight: "85vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <span style={{ fontWeight: 700, fontSize: 18 }}>Import Transactions</span>
+              <button style={{ background: "none", border: "none", color: "#666", cursor: "pointer", fontSize: 20 }} onClick={() => { setImportOpen(false); setImportPreview([]); setImportText(""); setImportError(""); }}>✕</button>
+            </div>
+
+            {!importPreview.length ? (
+              <div style={{ display: "grid", gap: 14 }}>
+                {/* Format guide */}
+                <div style={{ background: "#0d0d14", border: "1px solid #2a2a4a", borderRadius: 10, padding: "12px 14px" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#7b6ef6", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>Required CSV Format</div>
+                  <div style={{ fontFamily: "monospace", fontSize: 10, color: "#888", lineHeight: 1.7, overflowX: "auto", whiteSpace: "nowrap" }}>
+                    date,member,coin,type,qty,purchasePrice,...<br/>
+                    2024-01-15,jorge,BTC,buy,0.05,42000,...
+                  </div>
+                  <div style={{ fontSize: 10, color: "#555", marginTop: 8 }}>
+                    Required: <span style={{ color: "#aaa" }}>date · member · coin · type · qty</span>. Member must match an existing portfolio ID.
+                  </div>
+                </div>
+
+                {/* Download template */}
+                <button
+                  onClick={() => {
+                    const template = "date,member,coin,type,qty,purchasePrice,usdTotal,exchange,fee,notes\n" +
+                      MEMBERS.slice(0,1).map(m => `2024-01-15,${m.id},BTC,buy,0.01,42000,420,Coinbase,0,Example buy`).join("\n");
+                    const blob = new Blob([template], { type: "text/csv" });
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = "import_template.csv";
+                    a.click();
+                    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+                  }}
+                  style={{ background: "none", border: "1px solid #333", borderRadius: 8, padding: "8px 14px", fontSize: 12, color: "#aaa", cursor: "pointer", textAlign: "left" }}>
+                  ↓ Download template CSV
+                </button>
+
+                {/* Paste area */}
+                <div>
+                  <div className="lbl" style={{ marginBottom: 6 }}>Paste CSV content or upload file</div>
+                  <textarea
+                    rows={8}
+                    value={importText}
+                    onChange={e => setImportText(e.target.value)}
+                    placeholder={"date,member,coin,type,qty,purchasePrice,...\n2024-01-15,jorge,BTC,buy,0.05,42000,..."}
+                    style={{ width: "100%", background: "#111", border: "1px solid #2a2a2a", borderRadius: 8, color: "#ccc", fontSize: 11, padding: "10px 12px", boxSizing: "border-box", fontFamily: "monospace", resize: "vertical", outline: "none", lineHeight: 1.5 }}
+                  />
+                </div>
+
+                {/* File upload */}
+                <div>
+                  <label style={{ display: "inline-block", background: "#1a1a1a", border: "1px solid #333", borderRadius: 8, padding: "8px 14px", fontSize: 12, color: "#aaa", cursor: "pointer" }}>
+                    ↑ Upload .csv file
+                    <input type="file" accept=".csv,text/csv" style={{ display: "none" }}
+                      onChange={e => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = ev => setImportText(ev.target.result);
+                        reader.readAsText(file);
+                        e.target.value = "";
+                      }} />
+                  </label>
+                </div>
+
+                {importError && <div style={{ fontSize: 12, color: "#ff4444", background: "#ff44440d", borderRadius: 8, padding: "8px 12px" }}>{importError}</div>}
+
+                <button onClick={() => parseImportCSV(importText)} disabled={!importText.trim()}
+                  style={{ width: "100%", padding: "12px", borderRadius: 10, border: "none", fontWeight: 700, fontSize: 14,
+                    cursor: importText.trim() ? "pointer" : "not-allowed", opacity: importText.trim() ? 1 : 0.5,
+                    background: "#6fa8ff", color: "#000" }}>
+                  Preview Import
+                </button>
+              </div>
+            ) : (
+              /* Preview + confirm */
+              <div style={{ display: "grid", gap: 14 }}>
+                <div style={{ background: "#0d1a0d", border: "1px solid #1a3a1a", borderRadius: 10, padding: "10px 14px", fontSize: 12, color: "#6fa" }}>
+                  Found <strong>{importPreview.length}</strong> valid transactions ready to import.
+                </div>
+
+                <div style={{ maxHeight: 240, overflowY: "auto", background: "#0d0d0d", borderRadius: 10, border: "1px solid #1e1e1e" }}>
+                  {importPreview.slice(0, 50).map((row, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", borderBottom: "1px solid #151515", fontSize: 11 }}>
+                      <span style={{ color: "#aaa" }}>{row.date} · {row.member} · {row.coin}</span>
+                      <span style={{ color: row.type === "buy" ? "#00e676" : "#ff4444", fontWeight: 700, textTransform: "uppercase" }}>{row.type} {row.qty}</span>
+                    </div>
+                  ))}
+                  {importPreview.length > 50 && <div style={{ padding: "8px 12px", fontSize: 11, color: "#555" }}>... and {importPreview.length - 50} more</div>}
+                </div>
+
+                {importSaving && (
+                  <div style={{ fontSize: 12, color: "#f7931a", textAlign: "center" }}>Saving {importDone} / {importPreview.length}...</div>
+                )}
+                {importError && <div style={{ fontSize: 12, color: "#ff4444" }}>{importError}</div>}
+
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button onClick={() => { setImportPreview([]); setImportError(""); }}
+                    style={{ flex: 1, padding: "12px", borderRadius: 10, border: "1px solid #333", background: "none", color: "#aaa", fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+                    Back
+                  </button>
+                  <button onClick={saveImport} disabled={importSaving}
+                    style={{ flex: 2, padding: "12px", borderRadius: 10, border: "none", fontWeight: 700, fontSize: 14,
+                      cursor: importSaving ? "not-allowed" : "pointer", opacity: importSaving ? 0.6 : 1,
+                      background: "#00e676", color: "#000" }}>
+                    {importSaving ? `Saving ${importDone}/${importPreview.length}...` : `Import ${importPreview.length} Transactions`}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -4091,11 +4289,23 @@ export default function CryptoApp() {
                 <div className="lbl" style={{ marginBottom: 5 }}>Total Transactions</div>
                 <div className="bignum" style={{ fontSize: 32 }}>{TRANSACTIONS.length}</div>
               </div>
-	              <button
-	                style={{ background: firebaseReady ? "#00e676" : "#555", border: "none", borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, color: firebaseReady ? "#000" : "#111", cursor: firebaseReady ? "pointer" : "not-allowed", opacity: firebaseReady ? 1 : 0.75 }}
-	                onClick={() => firebaseReady ? setAddTxOpen(true) : alert(firestoreDisabledMessage)}>
-	                + Add
-	              </button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  style={{ background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 10, padding: "8px 12px", fontSize: 12, fontWeight: 600, color: "#aaa", cursor: "pointer" }}
+                  onClick={() => exportCSV(filteredTxs, `transactions_${txFilter === "all" ? "all" : txFilter}_${today}.csv`)}>
+                  ↓ CSV
+                </button>
+                <button
+                  style={{ background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 10, padding: "8px 12px", fontSize: 12, fontWeight: 600, color: "#aaa", cursor: "pointer" }}
+                  onClick={() => setImportOpen(true)}>
+                  ↑ Import
+                </button>
+                <button
+                  style={{ background: firebaseReady ? "#00e676" : "#555", border: "none", borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, color: firebaseReady ? "#000" : "#111", cursor: firebaseReady ? "pointer" : "not-allowed", opacity: firebaseReady ? 1 : 0.75 }}
+                  onClick={() => firebaseReady ? setAddTxOpen(true) : alert(firestoreDisabledMessage)}>
+                  + Add
+                </button>
+              </div>
             </div>
 
             <div className="nobar" style={{ display: "flex", gap: 5, overflowX: "auto", marginBottom: 16, paddingBottom: 4 }}>
