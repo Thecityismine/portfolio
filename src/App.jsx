@@ -1830,6 +1830,24 @@ export default function CryptoApp() {
   const [liveChanges, setLiveChanges] = useState({}); // { BTC: -2.3, ETH: 1.1, ... } percent_change_24h
   const [priceStatus, setPriceStatus] = useState("static"); // "static" | "loading" | "live" | "error"
 
+  // Sync CMC key from Firestore so all devices share the same key
+  useEffect(() => {
+    if (!firebaseReady) return;
+    const unsub = onSnapshot(doc(db, "settings", "app"), snap => {
+      if (snap.exists()) {
+        const key = snap.data().cmcKey ?? "";
+        setCmcKey(prev => {
+          if (key !== prev) {
+            if (key) localStorage.setItem("cmc_key", key);
+            else localStorage.removeItem("cmc_key");
+          }
+          return key;
+        });
+      }
+    });
+    return unsub;
+  }, []);
+
   useEffect(() => {
     if (!cmcKey) { setLivePrices({}); setLiveChanges({}); setPriceStatus("static"); return; }
     let cancelled = false;
@@ -4364,6 +4382,7 @@ export default function CryptoApp() {
         {/* APP SETTINGS PAGE */}
         {page === "app-settings" && (
           <div className="fade-in" style={{ padding: "18px 18px 0" }}>
+            <button className="btn-ghost" style={{ marginBottom: 16 }} onClick={() => setPage("home")}>← Home</button>
             <div style={{ marginBottom: 20 }}>
               <div className="lbl" style={{ marginBottom: 4 }}>Configuration</div>
               <div style={{ fontSize: 22, fontWeight: 700, color: "#fff", letterSpacing: "-0.02em" }}>App Settings</div>
@@ -4390,11 +4409,11 @@ export default function CryptoApp() {
             </div>
             <div style={{ background: "#0d1414", border: "1px solid #1a3a2a", borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "#00e676", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>CoinMarketCap API Key</div>
-              <div style={{ fontSize: 11, color: "#555", marginBottom: 10, lineHeight: 1.5 }}>Used for live price data. Saved to browser localStorage — never sent anywhere except directly to CoinMarketCap's API.</div>
+              <div style={{ fontSize: 11, color: "#555", marginBottom: 10, lineHeight: 1.5 }}>Used for live price data. Synced across all devices via Firestore — never sent anywhere except directly to CoinMarketCap's API.</div>
               <input
                 type="password"
                 value={cmcKey}
-                onChange={e => { setCmcKey(e.target.value); localStorage.setItem("cmc_key", e.target.value); }}
+                onChange={e => { const k = e.target.value; setCmcKey(k); localStorage.setItem("cmc_key", k); if (firebaseReady) setDoc(doc(db, "settings", "app"), { cmcKey: k }, { merge: true }); }}
                 placeholder="Enter CoinMarketCap API key..."
                 style={{ width: "100%", background: "#111", border: "1px solid #1a3a2a", borderRadius: 8, color: "#ccc", fontSize: 12, padding: "10px 12px", boxSizing: "border-box", outline: "none", fontFamily: "monospace" }}
               />
@@ -4404,7 +4423,7 @@ export default function CryptoApp() {
                   </div>
                 : <div style={{ fontSize: 11, color: "#555", marginTop: 6 }}>No key set. Get one at coinmarketcap.com/api</div>}
               {cmcKey && (
-                <button onClick={() => { setCmcKey(""); localStorage.removeItem("cmc_key"); }}
+                <button onClick={() => { setCmcKey(""); localStorage.removeItem("cmc_key"); if (firebaseReady) setDoc(doc(db, "settings", "app"), { cmcKey: "" }, { merge: true }); }}
                   style={{ marginTop: 10, background: "none", border: "1px solid #333", borderRadius: 7, color: "#555", fontSize: 11, padding: "5px 12px", cursor: "pointer" }}>
                   Clear Key
                 </button>
