@@ -11,5 +11,11 @@ service cloud.firestore {
     match /settings/{doc} {
       allow read, write: if true;
     }
+    match /members/{doc} {
+      allow read, write: if true;
+    }
+    match /inheritance/{doc} {
+      allow read, write: if true;
+    }
   }
 }

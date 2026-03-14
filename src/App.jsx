@@ -1282,7 +1282,9 @@ const fmtFull = (n) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2,
 const BC = "'Inter', -apple-system, BlinkMacSystemFont, sans-serif";
 const RJ = "'Inter', -apple-system, BlinkMacSystemFont, sans-serif";
 
-const TOOLTIP_STYLE = { background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 8, fontFamily: "'Inter', sans-serif", fontWeight: 500, fontSize: 13, color: "#fff" };
+const TOOLTIP_STYLE = { background: "#1c1c1c", border: "1px solid #333", borderRadius: 10, fontFamily: "'Inter', sans-serif", fontWeight: 500, fontSize: 12, color: "#fff", padding: "8px 12px" };
+const TOOLTIP_LABEL_STYLE = { color: "#fff", fontWeight: 700, marginBottom: 2 };
+const TOOLTIP_ITEM_STYLE = { color: "#ccc" };
 
 // ─── FIFO TAX ENGINE ─────────────────────────────────────────────────────────
 // Historical ETH monthly prices for ETH-quoted trade conversion
@@ -2001,6 +2003,10 @@ export default function CryptoApp() {
   const [inheritanceAiError, setInheritanceAiError] = useState("");
   const [inheritanceSaving, setInheritanceSaving] = useState(false);
   const [executorCardCollapsed, setExecutorCardCollapsed] = useState(true);
+  const [manageBeneficiariesOpen, setManageBeneficiariesOpen] = useState(false);
+  const [inheritanceInstructions, setInheritanceInstructions] = useState("");
+  const [inheritanceInstructionsEdit, setInheritanceInstructionsEdit] = useState(false);
+  const [inheritanceInstructionsDraft, setInheritanceInstructionsDraft] = useState("");
 
   const firestoreStatusText = !FS_BASE
     ? "Missing Vercel Firebase env vars"
@@ -2039,28 +2045,40 @@ export default function CryptoApp() {
           try { setInheritanceAllocs(JSON.parse(doc.allocationsJson || "{}")); } catch { }
           if (doc.executorId) setInheritanceExecutorId(doc.executorId);
           if (doc.beneficiaryIds) try { setInheritanceBeneficiaryIds(JSON.parse(doc.beneficiaryIds)); } catch { }
+          if (doc.instructions) setInheritanceInstructions(doc.instructions);
         }
       })
       .catch(err => console.error("Failed to load inheritance:", err));
   }
 
   async function saveInheritanceAllocs(allocs, executorId, beneficiaryIds) {
+    const bIds = beneficiaryIds ?? inheritanceBeneficiaryIds;
+    // Update local state immediately (optimistic)
+    setInheritanceAllocs(allocs);
+    setInheritanceExecutorId(executorId);
+    if (bIds !== null) setInheritanceBeneficiaryIds(bIds);
     if (!FS_BASE) return;
     setInheritanceSaving(true);
     try {
-      const bIds = beneficiaryIds ?? inheritanceBeneficiaryIds;
-      const data = { allocationsJson: JSON.stringify(allocs), executorId, beneficiaryIds: JSON.stringify(bIds) };
+      const data = { allocationsJson: JSON.stringify(allocs), executorId, beneficiaryIds: JSON.stringify(bIds), instructions: inheritanceInstructions };
       if (inheritanceDocId) {
         await fsUpdate("inheritance", inheritanceDocId, data);
       } else {
         const doc = await fsAdd("inheritance", data);
         setInheritanceDocId(doc.id);
       }
-      setInheritanceAllocs(allocs);
-      setInheritanceExecutorId(executorId);
-      if (bIds !== null) setInheritanceBeneficiaryIds(bIds);
     } catch(e) { console.error("Failed to save inheritance:", e); }
     setInheritanceSaving(false);
+  }
+
+  async function saveInheritanceInstructions(text) {
+    setInheritanceInstructions(text);
+    if (!FS_BASE) return;
+    try {
+      const data = { allocationsJson: JSON.stringify(inheritanceAllocs), executorId: inheritanceExecutorId, beneficiaryIds: JSON.stringify(inheritanceBeneficiaryIds), instructions: text };
+      if (inheritanceDocId) { await fsUpdate("inheritance", inheritanceDocId, data); }
+      else { const doc = await fsAdd("inheritance", data); setInheritanceDocId(doc.id); }
+    } catch(e) { console.error("Failed to save instructions:", e); }
   }
 
   async function generateInheritanceSummary(jorgeHoldings, allocs) {
@@ -2098,7 +2116,7 @@ export default function CryptoApp() {
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514", max_tokens: 1200,
           system: "You are a wealth management and estate planning assistant. Generate professional, clear estate planning summaries for families holding cryptocurrency. Be specific about numbers. Note this is for planning purposes only and they should consult an estate attorney.",
-          messages: [{ role: "user", content: `Generate a formal estate planning executive summary for the executor as of ${payload.date}.\n\nEstate Data:\n${JSON.stringify(payload, null, 2)}\n\nProvide:\n1. Executive Summary (2-3 sentences)\n2. Estate Overview (total value, major holdings)\n3. Allocation Summary per beneficiary (name, inherited amount, own holdings, combined total)\n4. Key Notes for Executor (access, security, distribution timing)\n5. Recommended Next Steps\n\nKeep it professional, specific, and under 400 words.` }],
+          messages: [{ role: "user", content: `Generate a formal estate planning executive summary for the executor as of ${payload.date}.\n\nEstate Data:\n${JSON.stringify(payload, null, 2)}${inheritanceInstructions ? `\n\nSpecial Instructions from Estate Owner:\n${inheritanceInstructions}` : ""}\n\nProvide:\n1. Executive Summary (2-3 sentences)\n2. Estate Overview (total value, major holdings)\n3. Allocation Summary per beneficiary (name, inherited amount, own holdings, combined total)\n4. Key Notes for Executor (access, security, distribution timing)${inheritanceInstructions ? "\n5. Notes on Special Instructions" : ""}\n${inheritanceInstructions ? "6" : "5"}. Recommended Next Steps\n\nKeep it professional, specific, and under 400 words.` }],
         }),
       });
       const data = await res.json();
@@ -3516,7 +3534,7 @@ export default function CryptoApp() {
                         <Pie data={pieData} cx="50%" cy="50%" innerRadius={54} outerRadius={86} paddingAngle={2} dataKey="value" strokeWidth={0}>
                           {pieData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                         </Pie>
-                        <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v, name, props) => [`${v}% · ${props.payload.btc.toFixed(6)} BTC · ${fmtFull(props.payload.btcUsd)}`, name]} />
+                        <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} itemStyle={TOOLTIP_ITEM_STYLE} formatter={(v, name, props) => [`${v}% · ${props.payload.btc.toFixed(6)} BTC · ${fmtFull(props.payload.btcUsd)}`, name]} />
                       </PieChart>
                     </ResponsiveContainer>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 12px", marginTop: 4 }}>
@@ -4404,7 +4422,7 @@ export default function CryptoApp() {
                       </linearGradient>
                     </defs>
                     <XAxis hide /><YAxis hide />
-                    <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => [fmt(v), ""]} labelFormatter={() => ""} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} itemStyle={TOOLTIP_ITEM_STYLE} formatter={(v) => [fmt(v), ""]} labelFormatter={() => ""} />
                     <Area type="monotone" dataKey="v" stroke="#f7931a" strokeWidth={2.5} fill="url(#iGrad)" dot={false} />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -4438,7 +4456,7 @@ export default function CryptoApp() {
                       <BarChart data={chartData} barGap={2} barCategoryGap={10}>
                         <XAxis dataKey="q" tick={{ fontSize: 12, fill: "#555" }} axisLine={false} tickLine={false} />
                         <YAxis hide />
-                        <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => [`${v >= 0 ? "+" : ""}${v}%`, "Return"]} />
+                        <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} itemStyle={TOOLTIP_ITEM_STYLE} formatter={(v) => [`${v >= 0 ? "+" : ""}${v}%`, "Return"]} />
                         <Bar dataKey="portfolio" radius={2}>
                           {chartData.map((entry, i) => (
                             <Cell key={i} fill={(entry.portfolio ?? 0) >= 0 ? "#00e676" : "#ff4444"} />
@@ -4539,7 +4557,7 @@ export default function CryptoApp() {
                         <Pie data={pieData} cx="50%" cy="50%" innerRadius={58} outerRadius={90} paddingAngle={2} dataKey="value" strokeWidth={0}>
                           {pieData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                         </Pie>
-                        <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v, name, props) => [`${v}% · ${fmtFull(props.payload.usd)}`, name]} />
+                        <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} itemStyle={TOOLTIP_ITEM_STYLE} formatter={(v, name, props) => [`${v}% · ${fmtFull(props.payload.usd)}`, name]} />
                       </PieChart>
                     </ResponsiveContainer>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 16px" }}>
@@ -4614,7 +4632,7 @@ export default function CryptoApp() {
                         <Pie data={exchPie} innerRadius={40} outerRadius={62} paddingAngle={3} dataKey="value" strokeWidth={0}>
                           {exchPie.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                         </Pie>
-                        <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v, name, props) => [`${v}% · ${fmtFull(props.payload.usd)}`, name]} />
+                        <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} itemStyle={TOOLTIP_ITEM_STYLE} formatter={(v, name, props) => [`${v}% · ${fmtFull(props.payload.usd)}`, name]} />
                       </PieChart>
                     </ResponsiveContainer>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center" }}>
@@ -4995,16 +5013,49 @@ export default function CryptoApp() {
                 </div>
               )}
 
-              {/* Beneficiary section header + edit toggle */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>Beneficiaries</div>
-                <button onClick={() => {
-                  if (inheritanceEditMode) { setInheritanceEditMode(false); setInheritanceDraft({}); }
-                  else { setInheritanceDraft(JSON.parse(JSON.stringify(inheritanceAllocs))); setInheritanceEditMode(true); }
-                }} style={{ background: inheritanceEditMode ? "#ff4a4a18" : "#ffffff0e", border: `1px solid ${inheritanceEditMode ? "#ff4a4a44" : "#2a2a2a"}`, borderRadius: 8, padding: "5px 12px", fontSize: 11, fontWeight: 600, color: inheritanceEditMode ? "#ff6b6b" : "#888", cursor: "pointer" }}>
-                  {inheritanceEditMode ? "Cancel" : "Edit Allocations"}
-                </button>
+              {/* Beneficiary section header */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>
+                  Beneficiaries <span style={{ fontSize: 11, fontWeight: 400, color: "#555" }}>({beneficiaries.length})</span>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => setManageBeneficiariesOpen(v => !v)}
+                    style={{ background: manageBeneficiariesOpen ? "#f7931a18" : "#ffffff0e", border: `1px solid ${manageBeneficiariesOpen ? "#f7931a44" : "#2a2a2a"}`, borderRadius: 8, padding: "5px 12px", fontSize: 11, fontWeight: 600, color: manageBeneficiariesOpen ? "#f7931a" : "#888", cursor: "pointer" }}>
+                    {manageBeneficiariesOpen ? "Done" : "+ Manage"}
+                  </button>
+                  <button onClick={() => {
+                    if (inheritanceEditMode) { setInheritanceEditMode(false); setInheritanceDraft({}); }
+                    else { setInheritanceDraft(JSON.parse(JSON.stringify(inheritanceAllocs))); setInheritanceEditMode(true); }
+                  }} style={{ background: inheritanceEditMode ? "#ff4a4a18" : "#ffffff0e", border: `1px solid ${inheritanceEditMode ? "#ff4a4a44" : "#2a2a2a"}`, borderRadius: 8, padding: "5px 12px", fontSize: 11, fontWeight: 600, color: inheritanceEditMode ? "#ff6b6b" : "#888", cursor: "pointer" }}>
+                    {inheritanceEditMode ? "Cancel" : "Edit Allocations"}
+                  </button>
+                </div>
               </div>
+
+              {/* Beneficiary selector */}
+              {manageBeneficiariesOpen && (
+                <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "14px 16px", marginBottom: 12 }}>
+                  <div style={{ fontSize: 11, color: "#555", marginBottom: 12 }}>Select who receives an inheritance from Jorge's portfolio.</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {allNonJorge.map(m => {
+                      const included = activeBeneficiaryIds.includes(m.id);
+                      return (
+                        <div key={m.id} onClick={() => {
+                          const next = included ? activeBeneficiaryIds.filter(id => id !== m.id) : [...activeBeneficiaryIds, m.id];
+                          saveInheritanceAllocs(inheritanceAllocs, inheritanceExecutorId, next);
+                          if (inheritanceEditMode) { setInheritanceEditMode(false); setInheritanceDraft({}); }
+                        }} style={{ display: "flex", alignItems: "center", gap: 12, cursor: "pointer", padding: "4px 0" }}>
+                          <div style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${included ? "#00e676" : "#333"}`, background: included ? "#00e67622" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                            {included && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>}
+                          </div>
+                          <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#1a1a1a", border: "1px solid #2a2a2a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#888", flexShrink: 0 }}>{m.avatar}</div>
+                          <span style={{ fontSize: 13, color: included ? "#fff" : "#666", fontWeight: included ? 600 : 400 }}>{m.name}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Edit panel — BTC / ETH / Altcoins only */}
               {inheritanceEditMode && (
@@ -5025,13 +5076,16 @@ export default function CryptoApp() {
                           <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
                             <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#161616", border: "1px solid #2a2a2a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#888", flexShrink: 0 }}>{m.avatar}</div>
                             <span style={{ fontSize: 11, color: "#777", flex: 1 }}>{m.name.split(" ")[0]}</span>
-                            <input type="number" min="0" max="100" placeholder="0"
-                              value={inheritanceDraft[group]?.[m.id] ?? ""}
+                            <input type="number" min="0" max="100" placeholder="0" inputMode="decimal"
+                              value={inheritanceDraft[group]?.[m.id] || ""}
                               onChange={e => {
-                                const val = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
+                                setInheritanceDraft(prev => ({ ...prev, [group]: { ...(prev[group] || {}), [m.id]: e.target.value } }));
+                              }}
+                              onBlur={e => {
+                                const val = Math.min(100, Math.max(0, parseFloat(e.target.value) || 0));
                                 setInheritanceDraft(prev => ({ ...prev, [group]: { ...(prev[group] || {}), [m.id]: val } }));
                               }}
-                              style={{ width: 54, background: "#111", border: "1px solid #2a2a2a", borderRadius: 6, padding: "4px 6px", fontSize: 12, color: "#fff", textAlign: "center" }}
+                              style={{ width: 60, background: "#111", border: "1px solid #2a2a2a", borderRadius: 6, padding: "4px 8px", fontSize: 14, color: "#fff", textAlign: "center" }}
                             />
                             <span style={{ fontSize: 11, color: "#444" }}>%</span>
                           </div>
@@ -5107,6 +5161,40 @@ export default function CryptoApp() {
                   </div>
                 );
               })}
+
+              {/* Instructions card */}
+              <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 16, padding: "16px", marginTop: 8, marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: inheritanceInstructionsEdit ? 10 : (inheritanceInstructions ? 10 : 0) }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>Special Instructions</div>
+                    <div style={{ fontSize: 11, color: "#444", marginTop: 2 }}>Personal notes · used in AI summary</div>
+                  </div>
+                  <button onClick={() => {
+                    if (inheritanceInstructionsEdit) {
+                      saveInheritanceInstructions(inheritanceInstructionsDraft);
+                      setInheritanceInstructionsEdit(false);
+                    } else {
+                      setInheritanceInstructionsDraft(inheritanceInstructions);
+                      setInheritanceInstructionsEdit(true);
+                    }
+                  }} style={{ background: inheritanceInstructionsEdit ? "#00e67618" : "#ffffff0e", border: `1px solid ${inheritanceInstructionsEdit ? "#00e67644" : "#2a2a2a"}`, borderRadius: 8, padding: "5px 12px", fontSize: 11, fontWeight: 600, color: inheritanceInstructionsEdit ? "#00e676" : "#888", cursor: "pointer" }}>
+                    {inheritanceInstructionsEdit ? "Save" : (inheritanceInstructions ? "Edit" : "+ Add")}
+                  </button>
+                </div>
+                {inheritanceInstructionsEdit ? (
+                  <textarea
+                    value={inheritanceInstructionsDraft}
+                    onChange={e => setInheritanceInstructionsDraft(e.target.value)}
+                    placeholder="e.g. Do not distribute until youngest child turns 18. BTC cold wallet seed phrase is in the safe. Contact attorney John Smith at 555-0100. Steffie has POA..."
+                    rows={5}
+                    style={{ width: "100%", background: "#0a0a0a", border: "1px solid #2a2a2a", borderRadius: 10, color: "#fff", fontSize: 13, padding: "10px 12px", boxSizing: "border-box", resize: "vertical", outline: "none", lineHeight: 1.6, fontFamily: "'Inter', sans-serif" }}
+                  />
+                ) : inheritanceInstructions ? (
+                  <div style={{ fontSize: 12, color: "#aaa", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{inheritanceInstructions}</div>
+                ) : (
+                  <div style={{ fontSize: 11, color: "#2a2a2a", textAlign: "center", padding: "12px 0" }}>No instructions added yet. Tap + Add to include notes for the executor.</div>
+                )}
+              </div>
 
               {/* AI Executive Summary */}
               <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 16, padding: "16px", marginTop: 8 }}>
