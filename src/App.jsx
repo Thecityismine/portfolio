@@ -1833,18 +1833,18 @@ export default function CryptoApp() {
   // Sync CMC key from Firestore so all devices share the same key
   useEffect(() => {
     if (!firebaseReady) return;
-    const unsub = onSnapshot(doc(db, "settings", "app"), snap => {
-      if (snap.exists()) {
-        const key = snap.data().cmcKey ?? "";
-        setCmcKey(prev => {
-          if (key !== prev) {
-            if (key) localStorage.setItem("cmc_key", key);
-            else localStorage.removeItem("cmc_key");
-          }
-          return key;
-        });
-      }
-    });
+    const unsub = onSnapshot(
+      doc(db, "settings", "app"),
+      snap => {
+        if (snap.exists()) {
+          const key = snap.data().cmcKey ?? "";
+          setCmcKey(key);
+          if (key) localStorage.setItem("cmc_key", key);
+          else localStorage.removeItem("cmc_key");
+        }
+      },
+      err => console.warn("Settings sync error:", err.code)
+    );
     return unsub;
   }, []);
 
@@ -4413,7 +4413,7 @@ export default function CryptoApp() {
               <input
                 type="password"
                 value={cmcKey}
-                onChange={e => { const k = e.target.value; setCmcKey(k); localStorage.setItem("cmc_key", k); if (firebaseReady) setDoc(doc(db, "settings", "app"), { cmcKey: k }, { merge: true }); }}
+                onChange={e => { const k = e.target.value; setCmcKey(k); localStorage.setItem("cmc_key", k); if (firebaseReady) setDoc(doc(db, "settings", "app"), { cmcKey: k }, { merge: true }).catch(err => console.warn("Failed to save CMC key:", err.code)); }}
                 placeholder="Enter CoinMarketCap API key..."
                 style={{ width: "100%", background: "#111", border: "1px solid #1a3a2a", borderRadius: 8, color: "#ccc", fontSize: 12, padding: "10px 12px", boxSizing: "border-box", outline: "none", fontFamily: "monospace" }}
               />
@@ -4423,7 +4423,7 @@ export default function CryptoApp() {
                   </div>
                 : <div style={{ fontSize: 11, color: "#555", marginTop: 6 }}>No key set. Get one at coinmarketcap.com/api</div>}
               {cmcKey && (
-                <button onClick={() => { setCmcKey(""); localStorage.removeItem("cmc_key"); if (firebaseReady) setDoc(doc(db, "settings", "app"), { cmcKey: "" }, { merge: true }); }}
+                <button onClick={() => { setCmcKey(""); localStorage.removeItem("cmc_key"); if (firebaseReady) setDoc(doc(db, "settings", "app"), { cmcKey: "" }, { merge: true }).catch(err => console.warn("Failed to clear CMC key:", err.code)); }}
                   style={{ marginTop: 10, background: "none", border: "1px solid #333", borderRadius: 7, color: "#555", fontSize: 11, padding: "5px 12px", cursor: "pointer" }}>
                   Clear Key
                 </button>

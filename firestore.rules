@@ -1,0 +1,15 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow open read/write for family portfolio tracker (no auth)
+    match /transactions/{doc} {
+      allow read, write: if true;
+    }
+    match /snapshots/{doc} {
+      allow read, write: if true;
+    }
+    match /settings/{doc} {
+      allow read, write: if true;
+    }
+  }
+}
