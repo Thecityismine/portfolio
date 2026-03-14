@@ -1841,6 +1841,13 @@ export default function CryptoApp() {
           setCmcKey(key);
           if (key) localStorage.setItem("cmc_key", key);
           else localStorage.removeItem("cmc_key");
+        } else {
+          // Doc doesn't exist yet — push localStorage key to Firestore (migration)
+          const localKey = localStorage.getItem("cmc_key");
+          if (localKey) {
+            setDoc(doc(db, "settings", "app"), { cmcKey: localKey }, { merge: true })
+              .catch(err => console.warn("CMC key migration failed:", err.code));
+          }
         }
       },
       err => console.warn("Settings sync error:", err.code)
@@ -4423,10 +4430,16 @@ export default function CryptoApp() {
                   </div>
                 : <div style={{ fontSize: 11, color: "#555", marginTop: 6 }}>No key set. Get one at coinmarketcap.com/api</div>}
               {cmcKey && (
-                <button onClick={() => { setCmcKey(""); localStorage.removeItem("cmc_key"); if (firebaseReady) setDoc(doc(db, "settings", "app"), { cmcKey: "" }, { merge: true }).catch(err => console.warn("Failed to clear CMC key:", err.code)); }}
-                  style={{ marginTop: 10, background: "none", border: "1px solid #333", borderRadius: 7, color: "#555", fontSize: 11, padding: "5px 12px", cursor: "pointer" }}>
-                  Clear Key
-                </button>
+                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                  <button onClick={() => { if (firebaseReady) setDoc(doc(db, "settings", "app"), { cmcKey }, { merge: true }).then(() => alert("Key synced to all devices ✓")).catch(err => alert("Sync failed: " + err.code)); else alert("Firebase not connected"); }}
+                    style={{ background: "#00e676", border: "none", borderRadius: 7, color: "#000", fontSize: 11, fontWeight: 700, padding: "5px 12px", cursor: "pointer" }}>
+                    Sync to All Devices
+                  </button>
+                  <button onClick={() => { setCmcKey(""); localStorage.removeItem("cmc_key"); if (firebaseReady) setDoc(doc(db, "settings", "app"), { cmcKey: "" }, { merge: true }).catch(err => console.warn("Failed to clear CMC key:", err.code)); }}
+                    style={{ background: "none", border: "1px solid #333", borderRadius: 7, color: "#555", fontSize: 11, padding: "5px 12px", cursor: "pointer" }}>
+                    Clear Key
+                  </button>
+                </div>
               )}
             </div>
             <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden", marginBottom: 14 }}>
