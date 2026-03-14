@@ -1831,30 +1831,51 @@ export default function CryptoApp() {
   const [liveChanges, setLiveChanges] = useState({}); // { BTC: -2.3, ETH: 1.1, ... } percent_change_24h
   const [priceStatus, setPriceStatus] = useState("static"); // "static" | "loading" | "live" | "error"
 
-  // Sync CMC key from Firestore so all devices share the same key
+  // Firestore REST API helpers — bypasses SDK WebSocket, uses plain HTTPS
+  const FS_PROJECT = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+  const FS_API_KEY = import.meta.env.VITE_FIREBASE_API_KEY;
+  const FS_URL = FS_PROJECT && FS_API_KEY
+    ? `https://firestore.googleapis.com/v1/projects/${FS_PROJECT}/databases/(default)/documents/settings/app?key=${FS_API_KEY}`
+    : null;
+
+  async function fsReadCmcKey() {
+    if (!FS_URL) return null;
+    try {
+      const r = await fetch(FS_URL);
+      if (!r.ok) return null;
+      const data = await r.json();
+      return data.fields?.cmcKey?.stringValue ?? null;
+    } catch { return null; }
+  }
+
+  async function fsWriteCmcKey(key) {
+    if (!FS_URL) throw new Error("Firebase not configured");
+    const url = FS_URL + "&updateMask.fieldPaths=cmcKey";
+    const r = await fetch(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fields: { cmcKey: { stringValue: key } } }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.error?.message || `HTTP ${r.status}`);
+    }
+    return r.json();
+  }
+
+  // On load: pull CMC key from Firestore (REST), fall back to localStorage
   useEffect(() => {
-    if (!firebaseReady) return;
-    const unsub = onSnapshot(
-      doc(db, "settings", "app"),
-      snap => {
-        if (snap.exists()) {
-          const key = snap.data().cmcKey ?? "";
-          setCmcKey(key);
-          if (key) localStorage.setItem("cmc_key", key);
-          else localStorage.removeItem("cmc_key");
-        } else {
-          // Doc doesn't exist yet — push localStorage key to Firestore (migration)
-          const localKey = localStorage.getItem("cmc_key");
-          if (localKey) {
-            setDoc(doc(db, "settings", "app"), { cmcKey: localKey }, { merge: true })
-              .catch(err => console.warn("CMC key migration failed:", err.code));
-          }
-        }
-      },
-      err => console.warn("Settings sync error:", err.code)
-    );
-    return unsub;
-  }, []);
+    fsReadCmcKey().then(key => {
+      if (key && key !== localStorage.getItem("cmc_key")) {
+        setCmcKey(key);
+        localStorage.setItem("cmc_key", key);
+      } else if (!key) {
+        // Nothing in Firestore yet — push localStorage key up
+        const local = localStorage.getItem("cmc_key");
+        if (local) fsWriteCmcKey(local).catch(console.warn);
+      }
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!cmcKey) { setLivePrices({}); setLiveChanges({}); setPriceStatus("static"); return; }
@@ -4434,22 +4455,21 @@ export default function CryptoApp() {
                 <button
                   disabled={!cmcKey || cmcSyncStatus === "saving"}
                   onClick={() => {
-                    if (!firebaseReady) { setCmcSyncStatus("error"); return; }
                     setCmcSyncStatus("saving");
-                    setDoc(doc(db, "settings", "app"), { cmcKey }, { merge: true })
+                    fsWriteCmcKey(cmcKey)
                       .then(() => { setCmcSyncStatus("saved"); setTimeout(() => setCmcSyncStatus(""), 3000); })
-                      .catch(err => { console.warn("Sync failed:", err); setCmcSyncStatus("error"); });
+                      .catch(err => { console.warn("Sync failed:", err.message); setCmcSyncStatus("error:" + err.message); });
                   }}
-                  style={{ background: cmcSyncStatus === "saved" ? "#00c853" : cmcSyncStatus === "error" ? "#ff4444" : "#00e676", border: "none", borderRadius: 7, color: "#000", fontSize: 11, fontWeight: 700, padding: "6px 14px", cursor: cmcKey ? "pointer" : "not-allowed", opacity: cmcKey ? 1 : 0.4 }}>
-                  {cmcSyncStatus === "saving" ? "Saving..." : cmcSyncStatus === "saved" ? "Saved ✓" : cmcSyncStatus === "error" ? "Error ✗" : "Save & Sync"}
+                  style={{ background: cmcSyncStatus.startsWith("saved") ? "#00c853" : cmcSyncStatus.startsWith("error") ? "#ff4444" : "#00e676", border: "none", borderRadius: 7, color: "#000", fontSize: 11, fontWeight: 700, padding: "6px 14px", cursor: cmcKey ? "pointer" : "not-allowed", opacity: cmcKey ? 1 : 0.4 }}>
+                  {cmcSyncStatus === "saving" ? "Saving..." : cmcSyncStatus.startsWith("saved") ? "Saved ✓" : cmcSyncStatus.startsWith("error") ? "Error ✗" : "Save & Sync"}
                 </button>
                 {cmcKey && (
-                  <button onClick={() => { setCmcKey(""); localStorage.removeItem("cmc_key"); setCmcSyncStatus(""); if (firebaseReady) setDoc(doc(db, "settings", "app"), { cmcKey: "" }, { merge: true }).catch(console.warn); }}
+                  <button onClick={() => { setCmcKey(""); localStorage.removeItem("cmc_key"); setCmcSyncStatus(""); fsWriteCmcKey("").catch(console.warn); }}
                     style={{ background: "none", border: "1px solid #333", borderRadius: 7, color: "#555", fontSize: 11, padding: "6px 14px", cursor: "pointer" }}>
                     Clear
                   </button>
                 )}
-                {cmcSyncStatus === "error" && <span style={{ fontSize: 11, color: "#ff4444" }}>{firebaseReady ? "Write failed — check rules" : "Firebase not connected"}</span>}
+                {cmcSyncStatus.startsWith("error") && <span style={{ fontSize: 11, color: "#ff4444" }}>{cmcSyncStatus.slice(6) || "Write failed"}</span>}
               </div>
             </div>
             <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden", marginBottom: 14 }}>
