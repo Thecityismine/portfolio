@@ -4067,7 +4067,7 @@ export default function CryptoApp() {
             {/* Floating Add Transaction button — pre-fills this member */}
             <button
               onClick={() => {
-                setTxForm(f => ({ ...f, member: member.id }));
+                setTxForm(f => ({ ...f, member: member.id, coin: selectedCoin || f.coin }));
                 setAddTxOpen(true);
               }}
               style={{
@@ -4266,9 +4266,21 @@ export default function CryptoApp() {
                     <div style={{ fontSize: 18, fontWeight: 700, color: "#fff" }}>{coin}</div>
                     <div style={{ fontSize: 12, color: "#777" }}>{coinTxs.length} transactions</div>
                   </div>
-	                  <button
-	                    style={{ marginLeft: "auto", background: "#00e676", border: "none", borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, color: "#000", cursor: "pointer" }}
-	                    onClick={() => setAddTxOpen(true)}>+ Add</button>
+                  <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                    <button
+                      style={{ background: "#ff444422", border: "1px solid #ff444444", borderRadius: 10, padding: "8px 14px", fontSize: 13, fontWeight: 700, color: "#ff6b6b", cursor: "pointer" }}
+                      onClick={() => {
+                        const totalQty = coinTxs.reduce((s, t) => t.type === "sell" ? s - t.qty : s + t.qty, 0);
+                        setTxForm(f => ({ ...f, member: member.id, coin, type: "sell", qty: totalQty > 0 ? String(+totalQty.toFixed(8)) : "", price: String(COIN_PRICES[coin] || "") }));
+                        setAddTxOpen(true);
+                      }}>Sell All</button>
+                    <button
+                      style={{ background: "#00e676", border: "none", borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, color: "#000", cursor: "pointer" }}
+                      onClick={() => {
+                        setTxForm(f => ({ ...f, member: member.id, coin }));
+                        setAddTxOpen(true);
+                      }}>+ Add</button>
+                  </div>
                 </div>
 
                 {/* Expanded transaction detail cards */}
