@@ -2171,7 +2171,7 @@ export default function CryptoApp() {
     const liveUsd = Object.entries(holdings).reduce(
       (sum, [coin, qty]) => sum + qty * (COIN_PRICES[coin] || 0), 0
     );
-    return { ...m, holdings, usd: liveUsd, costBasis: newCostBasis, unrealizedPL: liveUsd - newCostBasis };
+    return { ...m, holdings, btc: holdings.BTC || 0, eth: holdings.ETH || 0, ada: holdings.ADA || 0, usd: liveUsd, costBasis: newCostBasis, unrealizedPL: liveUsd - newCostBasis };
   });
 
   const totalUSD = MEMBERS.reduce((s, m) => s + m.usd, 0);
