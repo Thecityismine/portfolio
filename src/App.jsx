@@ -1895,7 +1895,6 @@ async function fsDel(col, id) {
 
 export default function CryptoApp() {
   const [page, setPage] = useState("home");
-  useEffect(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0; }, [page]);
   const [anthropicKey, setAnthropicKey] = useState(() => localStorage.getItem("anthropic_key") || "");
   const [anthropicSyncStatus, setAnthropicSyncStatus] = useState("");
   const [cmcKey, setCmcKey] = useState(() => localStorage.getItem("cmc_key") || "");
@@ -3328,7 +3327,7 @@ export default function CryptoApp() {
         );
       })()}
 
-      <div ref={scrollContainerRef} style={{ height: "calc(100vh - 165px)", overflowY: "auto", paddingBottom: 80 }}>
+      <div key={page} ref={scrollContainerRef} style={{ height: "calc(100vh - 165px)", overflowY: "auto", paddingBottom: 80 }}>
 
         {/* HOME */}
         {page === "home" && (
