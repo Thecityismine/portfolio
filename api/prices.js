@@ -20,7 +20,7 @@ export default async function handler(req, res) {
 
   try {
     const response = await fetch(
-      `https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol=${symbols}&convert=USD`,
+      `https://pro-api.coinmarketcap.com/v2/cryptocurrency/quotes/latest?symbol=${symbols}&convert=USD`,
       {
         headers: {
           'X-CMC_PRO_API_KEY': cmcKey,
@@ -37,14 +37,35 @@ export default async function handler(req, res) {
 
     const prices = {};
     const changes = {};
-    for (const [sym, info] of Object.entries(data.data)) {
-      prices[sym] = info.quote.USD.price;
-      changes[sym] = info.quote.USD.percent_change_24h ?? 0;
+    const market = {}; // per-coin market data
+
+    for (const [sym, entries] of Object.entries(data.data)) {
+      // v2 returns an array per symbol; pick the first (highest rank)
+      const info = Array.isArray(entries) ? entries[0] : entries;
+      if (!info) continue;
+      const q = info.quote?.USD;
+      if (!q) continue;
+
+      prices[sym] = q.price;
+      changes[sym] = q.percent_change_24h ?? 0;
+      market[sym] = {
+        price:              q.price,
+        marketCap:          q.market_cap          ?? null,
+        marketCapChange24h: q.market_cap_dominance ?? null, // dominance %, not change
+        volume24h:          q.volume_24h           ?? null,
+        high24h:            q.high_24h             ?? null,
+        low24h:             q.low_24h              ?? null,
+        change24h:          q.percent_change_24h   ?? 0,
+        change7d:           q.percent_change_7d    ?? null,
+        circulatingSupply:  info.circulating_supply ?? null,
+        maxSupply:          info.max_supply         ?? null,
+        rank:               info.cmc_rank           ?? null,
+      };
     }
 
     // Cache response for 60 seconds on Vercel's edge
     res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=30');
-    return res.status(200).json({ prices, changes });
+    return res.status(200).json({ prices, changes, market });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

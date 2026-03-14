@@ -1895,26 +1895,40 @@ async function fsDel(col, id) {
 
 export default function CryptoApp() {
   const [page, setPage] = useState("home");
+  useEffect(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0; }, [page]);
   const [anthropicKey, setAnthropicKey] = useState(() => localStorage.getItem("anthropic_key") || "");
+  const [anthropicSyncStatus, setAnthropicSyncStatus] = useState("");
   const [cmcKey, setCmcKey] = useState(() => localStorage.getItem("cmc_key") || "");
   const [cmcSyncStatus, setCmcSyncStatus] = useState(""); // "" | "saving" | "saved" | "error"
   const [livePrices, setLivePrices] = useState({});
   const [liveChanges, setLiveChanges] = useState({}); // { BTC: -2.3, ETH: 1.1, ... } percent_change_24h
+  const [liveMarketData, setLiveMarketData] = useState({}); // { BTC: { marketCap, volume24h, high24h, low24h, ... } }
   const [priceStatus, setPriceStatus] = useState("static"); // "static" | "loading" | "live" | "error"
 
   // Firestore REST API helpers — bypasses SDK WebSocket, uses plain HTTPS
-  // On load: pull CMC key from Firestore (REST), fall back to localStorage
+  // On load: pull all settings from Firestore, fall back to localStorage
   useEffect(() => {
     if (!FS_BASE) return;
     fsGetAll("settings").then(docs => {
       const app = docs.find(d => d.id === "app");
-      const key = app?.cmcKey ?? null;
-      if (key && key !== localStorage.getItem("cmc_key")) {
-        setCmcKey(key);
-        localStorage.setItem("cmc_key", key);
-      } else if (!key) {
+      if (!app) return;
+      // CMC key
+      if (app.cmcKey && app.cmcKey !== localStorage.getItem("cmc_key")) {
+        setCmcKey(app.cmcKey);
+        localStorage.setItem("cmc_key", app.cmcKey);
+      } else if (!app.cmcKey) {
         const local = localStorage.getItem("cmc_key");
         if (local) fsUpdate("settings", "app", { cmcKey: local }).catch(console.warn);
+      }
+      // Anthropic key
+      if (app.anthropicKey && !localStorage.getItem("anthropic_key")) {
+        setAnthropicKey(app.anthropicKey);
+        localStorage.setItem("anthropic_key", app.anthropicKey);
+      }
+      // BTC goal
+      if (app.btcGoal && app.btcGoal > 0) {
+        setBtcGoal(app.btcGoal);
+        setGoalInput(String(app.btcGoal));
       }
     }).catch(console.warn);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1932,6 +1946,7 @@ export default function CryptoApp() {
         if (data.error) { setPriceStatus("error"); return; }
         setLivePrices(data.prices || data);   // backward-compat if old format
         setLiveChanges(data.changes || {});
+        if (data.market) setLiveMarketData(data.market);
         setPriceStatus("live");
       } catch { if (!cancelled) setPriceStatus("error"); }
     };
@@ -1963,6 +1978,30 @@ export default function CryptoApp() {
   const [coinChartRange, setCoinChartRange] = useState("ALL");
   const [memberBenchmark, setMemberBenchmark] = useState("portfolio"); // "portfolio" | "btc" | "spy"
   const sliderRef = useRef(null);
+  const scrollContainerRef = useRef(null);
+
+  // Firestore-persisted transactions (new entries added via the form)
+  const [firestoreTxs, setFirestoreTxs] = useState([]);
+  const [firestoreReady, setFirestoreReady] = useState(false);
+  // Firestore-persisted portfolio members (added via "New Portfolio")
+  const [firestoreMembers, setFirestoreMembers] = useState([]);
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
+  const [newMemberForm, setNewMemberForm] = useState({ name: "", avatar: "", exchange: "" });
+
+  // Inheritance planning
+  const [inheritanceAllocs, setInheritanceAllocs] = useState({});
+  const [inheritanceExecutorId, setInheritanceExecutorId] = useState("jorge");
+  const [inheritanceBeneficiaryIds, setInheritanceBeneficiaryIds] = useState(null); // null = not yet loaded (show all non-jorge)
+  const [inheritanceDocId, setInheritanceDocId] = useState(null);
+  const [inheritanceEditMode, setInheritanceEditMode] = useState(false);
+  const [inheritanceDraft, setInheritanceDraft] = useState({});
+  const [expandedBeneficiary, setExpandedBeneficiary] = useState(null);
+  const [inheritanceAiSummary, setInheritanceAiSummary] = useState("");
+  const [inheritanceAiLoading, setInheritanceAiLoading] = useState(false);
+  const [inheritanceAiError, setInheritanceAiError] = useState("");
+  const [inheritanceSaving, setInheritanceSaving] = useState(false);
+  const [executorCardCollapsed, setExecutorCardCollapsed] = useState(true);
+
   const firestoreStatusText = !FS_BASE
     ? "Missing Vercel Firebase env vars"
     : firestoreReady
@@ -1971,10 +2010,6 @@ export default function CryptoApp() {
   const firestoreDisabledMessage = !FS_BASE
     ? "Firebase not configured. Check Vercel VITE_FIREBASE_* env vars."
     : "Firebase is unavailable right now.";
-
-  // Firestore-persisted transactions (new entries added via the form)
-  const [firestoreTxs, setFirestoreTxs] = useState([]);
-  const [firestoreReady, setFirestoreReady] = useState(false);
 
   function refreshTransactions() {
     if (!FS_BASE) return;
@@ -1987,14 +2022,102 @@ export default function CryptoApp() {
       .catch(err => { console.error("Failed to load transactions:", err); setFirestoreReady(true); });
   }
 
+  function refreshMembers() {
+    if (!FS_BASE) return;
+    fsGetAll("members")
+      .then(docs => setFirestoreMembers(docs))
+      .catch(err => console.error("Failed to load members:", err));
+  }
+
+  function refreshInheritance() {
+    if (!FS_BASE) return;
+    fsGetAll("inheritance")
+      .then(docs => {
+        if (docs.length > 0) {
+          const doc = docs[0];
+          setInheritanceDocId(doc.id);
+          try { setInheritanceAllocs(JSON.parse(doc.allocationsJson || "{}")); } catch { }
+          if (doc.executorId) setInheritanceExecutorId(doc.executorId);
+          if (doc.beneficiaryIds) try { setInheritanceBeneficiaryIds(JSON.parse(doc.beneficiaryIds)); } catch { }
+        }
+      })
+      .catch(err => console.error("Failed to load inheritance:", err));
+  }
+
+  async function saveInheritanceAllocs(allocs, executorId, beneficiaryIds) {
+    if (!FS_BASE) return;
+    setInheritanceSaving(true);
+    try {
+      const bIds = beneficiaryIds ?? inheritanceBeneficiaryIds;
+      const data = { allocationsJson: JSON.stringify(allocs), executorId, beneficiaryIds: JSON.stringify(bIds) };
+      if (inheritanceDocId) {
+        await fsUpdate("inheritance", inheritanceDocId, data);
+      } else {
+        const doc = await fsAdd("inheritance", data);
+        setInheritanceDocId(doc.id);
+      }
+      setInheritanceAllocs(allocs);
+      setInheritanceExecutorId(executorId);
+      if (bIds !== null) setInheritanceBeneficiaryIds(bIds);
+    } catch(e) { console.error("Failed to save inheritance:", e); }
+    setInheritanceSaving(false);
+  }
+
+  async function generateInheritanceSummary(jorgeHoldings, allocs) {
+    if (!anthropicKey) { setInheritanceAiError("Add Anthropic API key in Settings first."); return; }
+    setInheritanceAiLoading(true);
+    setInheritanceAiSummary("");
+    setInheritanceAiError("");
+    const jorgeCoins = Object.keys(jorgeHoldings).filter(c => jorgeHoldings[c] > 0.00001);
+    const beneficiaries = MEMBERS.filter(m => m.id !== "jorge");
+    const beneficiaryData = beneficiaries.map(m => {
+      const coinBreakdown = jorgeCoins.filter(c => (allocs[c]?.[m.id] || 0) > 0).map(c => ({
+        coin: c, pct: allocs[c][m.id],
+        qty: +(jorgeHoldings[c] * allocs[c][m.id] / 100).toFixed(6),
+        usd: Math.round(jorgeHoldings[c] * allocs[c][m.id] / 100 * (COIN_PRICES[c] || 0)),
+      }));
+      return {
+        name: m.name,
+        ownHoldingsUSD: Math.round(m.usd || 0),
+        inheritedUSD: Math.round(coinBreakdown.reduce((s, x) => s + x.usd, 0)),
+        combinedUSD: Math.round((m.usd || 0) + coinBreakdown.reduce((s, x) => s + x.usd, 0)),
+        coins: coinBreakdown,
+      };
+    });
+    const totalEstateUSD = jorgeCoins.reduce((s, c) => s + (jorgeHoldings[c] || 0) * (COIN_PRICES[c] || 0), 0);
+    const payload = {
+      estateOwner: "Jorge Medina", date: new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
+      totalEstateUSD: Math.round(totalEstateUSD),
+      estateHoldings: jorgeCoins.map(c => ({ coin: c, qty: jorgeHoldings[c], usd: Math.round((jorgeHoldings[c] || 0) * (COIN_PRICES[c] || 0)) })),
+      beneficiaries: beneficiaryData,
+    };
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": anthropicKey, "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514", max_tokens: 1200,
+          system: "You are a wealth management and estate planning assistant. Generate professional, clear estate planning summaries for families holding cryptocurrency. Be specific about numbers. Note this is for planning purposes only and they should consult an estate attorney.",
+          messages: [{ role: "user", content: `Generate a formal estate planning executive summary for the executor as of ${payload.date}.\n\nEstate Data:\n${JSON.stringify(payload, null, 2)}\n\nProvide:\n1. Executive Summary (2-3 sentences)\n2. Estate Overview (total value, major holdings)\n3. Allocation Summary per beneficiary (name, inherited amount, own holdings, combined total)\n4. Key Notes for Executor (access, security, distribution timing)\n5. Recommended Next Steps\n\nKeep it professional, specific, and under 400 words.` }],
+        }),
+      });
+      const data = await res.json();
+      if (data.error) setInheritanceAiError(data.error.message);
+      else setInheritanceAiSummary(data.content[0].text);
+    } catch(e) { setInheritanceAiError("API error: " + e.message); }
+    setInheritanceAiLoading(false);
+  }
+
   useEffect(() => {
     if (!FS_BASE) { setFirestoreReady(true); return; }
     refreshTransactions();
+    refreshMembers();
+    refreshInheritance();
     // Refresh when tab regains focus (another device may have added transactions)
-    const onFocus = () => refreshTransactions();
+    const onFocus = () => { refreshTransactions(); refreshMembers(); refreshInheritance(); };
     window.addEventListener("focus", onFocus);
     // Also poll every 60 seconds
-    const poll = setInterval(refreshTransactions, 60000);
+    const poll = setInterval(() => { refreshTransactions(); refreshMembers(); }, 60000);
     return () => { window.removeEventListener("focus", onFocus); clearInterval(poll); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2152,9 +2275,21 @@ export default function CryptoApp() {
   // Combined transaction list: hardcoded history + Firestore-persisted new entries
   const TRANSACTIONS = [...HARDCODED_TRANSACTIONS, ...firestoreTxs];
 
+  // Merge static baseline with Firestore-added members (Firestore members are new, empty-holdings)
+  const ALL_BASE_MEMBERS = [
+    ...STATIC_MEMBERS,
+    ...firestoreMembers.filter(fm => !STATIC_MEMBERS.some(sm => sm.id === fm.id)).map(fm => ({
+      id: fm.id, name: fm.name, avatar: fm.avatar || fm.name.slice(0,2).toUpperCase(),
+      btc: 0, eth: 0, ada: 0, usd: 0, costBasis: 0,
+      unrealizedPL: 0, realizedGains: 0, cash: 0,
+      exchange: fm.exchange || "Manual",
+      holdings: {},
+    })),
+  ];
+
   // Recompute each member's holdings and portfolio values,
   // applying Firestore transactions on top of the static historical baseline
-  const MEMBERS = STATIC_MEMBERS.map(m => {
+  const MEMBERS = ALL_BASE_MEMBERS.map(m => {
     const memberNewTxs = firestoreTxs.filter(t => t.member === m.id);
     const holdings = { ...m.holdings };
     let extraCost = 0;
@@ -2546,7 +2681,7 @@ export default function CryptoApp() {
                 {
                   section: "Portfolio",
                   items: [
-                    { label: "New Portfolio", sub: "Add a family member", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9.5" y1="14.5" x2="14.5" y2="14.5"/></svg>, action: () => { setPage("portfolios"); setMenuOpen(false); } },
+                    { label: "New Portfolio", sub: "Add a family member", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9.5" y1="14.5" x2="14.5" y2="14.5"/></svg>, action: () => { setNewMemberForm({ name: "", avatar: "", exchange: "" }); setAddMemberOpen(true); setMenuOpen(false); } },
                     { label: "Manage Assets", sub: "Coins & holdings", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="6"/><ellipse cx="12" cy="17" rx="8" ry="3"/><path d="M4 17v3c0 1.66 3.58 3 8 3s8-1.34 8-3v-3"/></svg>, action: () => { setPage("portfolios"); setMenuOpen(false); } },
                     { label: "Set Goals", sub: "BTC targets per member", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/></svg>, action: () => { setPage("home"); setMenuOpen(false); } },
                   ]
@@ -2569,6 +2704,12 @@ export default function CryptoApp() {
                   section: "Tax",
                   items: [
                     { label: "Tax Reporting", sub: "2025 · FIFO · CoinTracking", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>, badge: "BETA", badgeColor: "#f7931a", action: () => { setPage("tax"); setMenuOpen(false); } },
+                  ]
+                },
+                {
+                  section: "Estate",
+                  items: [
+                    { label: "Inheritance", sub: "Allocation & estate plan", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>, action: () => { setPage("inheritance"); setMenuOpen(false); } },
                   ]
                 },
                 {
@@ -3153,6 +3294,7 @@ export default function CryptoApp() {
             : page === "tax" ? "Tax Reporting"
             : page === "app-settings" ? "Settings"
             : page === "about" ? "About"
+            : page === "inheritance" ? "Inheritance"
             : "Transactions"}
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
@@ -3186,7 +3328,7 @@ export default function CryptoApp() {
         );
       })()}
 
-      <div style={{ height: "calc(100vh - 165px)", overflowY: "auto", paddingBottom: 80 }}>
+      <div ref={scrollContainerRef} style={{ height: "calc(100vh - 165px)", overflowY: "auto", paddingBottom: 80 }}>
 
         {/* HOME */}
         {page === "home" && (
@@ -3428,7 +3570,7 @@ export default function CryptoApp() {
                               onKeyDown={e => {
                                 if (e.key === "Enter") {
                                   const v = parseFloat(goalInput);
-                                  if (!isNaN(v) && v > 0) setBtcGoal(v);
+                                  if (!isNaN(v) && v > 0) { setBtcGoal(v); fsSet("settings","app",{btcGoal:v}).catch(console.warn); }
                                   setEditingGoal(false);
                                 }
                                 if (e.key === "Escape") setEditingGoal(false);
@@ -3442,7 +3584,7 @@ export default function CryptoApp() {
                             <button
                               onClick={() => {
                                 const v = parseFloat(goalInput);
-                                if (!isNaN(v) && v > 0) setBtcGoal(v);
+                                if (!isNaN(v) && v > 0) { setBtcGoal(v); fsSet("settings","app",{btcGoal:v}).catch(console.warn); }
                                 setEditingGoal(false);
                               }}
                               style={{ background: "#f7931a", border: "none", borderRadius: 6, padding: "4px 10px", color: "#000", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
@@ -3913,9 +4055,9 @@ export default function CryptoApp() {
               style={{
                 position: "fixed", bottom: 90, right: 20,
                 width: 52, height: 52, borderRadius: "50%",
-                background: "#00e676", border: "none", cursor: "pointer",
+                background: "#f7931a", border: "none", cursor: "pointer",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                boxShadow: "0 4px 20px rgba(0,230,118,0.4)",
+                boxShadow: "0 4px 20px rgba(247,147,26,0.4)",
                 zIndex: 60, fontSize: 26, fontWeight: 300, color: "#000", lineHeight: 1,
               }}>
               +
@@ -3995,6 +4137,68 @@ export default function CryptoApp() {
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
+
+                {/* Market Data */}
+                {(() => {
+                  const md = liveMarketData[coin];
+                  if (!md) return null;
+                  const fmtLarge = n => {
+                    if (n === null || n === undefined) return "—";
+                    if (n >= 1e12) return `$${(n/1e12).toFixed(2)} T`;
+                    if (n >= 1e9)  return `$${(n/1e9).toFixed(2)} B`;
+                    if (n >= 1e6)  return `$${(n/1e6).toFixed(2)} M`;
+                    return `$${n.toLocaleString(undefined,{maximumFractionDigits:2})}`;
+                  };
+                  const fmtSupply = n => {
+                    if (n === null || n === undefined) return "—";
+                    if (n >= 1e9) return `${(n/1e9).toFixed(2)} B`;
+                    if (n >= 1e6) return `${(n/1e6).toFixed(2)} M`;
+                    if (n >= 1e3) return `${(n/1e3).toFixed(2)} K`;
+                    return n.toLocaleString(undefined,{maximumFractionDigits:0});
+                  };
+                  const fmtPrice = n => n === null || n === undefined ? "—" : `$${n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:n>=1?2:6})}`;
+                  const chg = md.change24h;
+                  return (
+                    <div style={{ background:"#111", border:"1px solid #1e1e1e", borderRadius:14, padding:"14px 16px", marginBottom:16 }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+                        <div style={{ fontSize:13, fontWeight:700, color:"#fff" }}>Market Data</div>
+                        {md.rank && <div style={{ fontSize:13, fontWeight:700, color:"#555" }}>#{md.rank}</div>}
+                      </div>
+                      {/* Market Cap */}
+                      <div style={{ marginBottom:14 }}>
+                        <div style={{ fontSize:12, color:"#666", marginBottom:3 }}>Market Cap</div>
+                        <div style={{ display:"flex", alignItems:"baseline", gap:8 }}>
+                          <span style={{ fontSize:17, fontWeight:700, color:"#fff" }}>{fmtLarge(md.marketCap)}</span>
+                          {chg !== null && <span style={{ fontSize:13, fontWeight:600, color: chg >= 0 ? "#00e676" : "#ff4444" }}>{chg >= 0 ? "+" : ""}{chg.toFixed(2)}%</span>}
+                        </div>
+                      </div>
+                      {/* 24h Low / High */}
+                      {(md.low24h || md.high24h) && (
+                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:14 }}>
+                          <div>
+                            <div style={{ fontSize:12, color:"#666", marginBottom:3 }}>Low (24h)</div>
+                            <div style={{ fontSize:15, fontWeight:700, color:"#fff" }}>{fmtPrice(md.low24h)}</div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize:12, color:"#666", marginBottom:3 }}>High (24h)</div>
+                            <div style={{ fontSize:15, fontWeight:700, color:"#fff" }}>{fmtPrice(md.high24h)}</div>
+                          </div>
+                        </div>
+                      )}
+                      {/* Volume / Circulating Supply */}
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                        <div>
+                          <div style={{ fontSize:12, color:"#666", marginBottom:3 }}>Volume (24h)</div>
+                          <div style={{ fontSize:15, fontWeight:700, color:"#fff" }}>{fmtLarge(md.volume24h)}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize:12, color:"#666", marginBottom:3 }}>Circulating Supply</div>
+                          <div style={{ fontSize:15, fontWeight:700, color:"#fff" }}>{fmtSupply(md.circulatingSupply)} <span style={{fontSize:11,color:"#555"}}>{coin}</span></div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Avg buy / sell / tx count */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 20 }}>
@@ -4481,23 +4685,34 @@ export default function CryptoApp() {
             </div>
             <div style={{ background: "#0d0d14", border: "1px solid #2a2a4a", borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "#7b6ef6", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Anthropic API Key</div>
-              <div style={{ fontSize: 11, color: "#555", marginBottom: 10, lineHeight: 1.5 }}>Used for AI tax analysis in the Tax Reporting page. Saved to browser localStorage — never sent anywhere except directly to Anthropic's API.</div>
+              <div style={{ fontSize: 11, color: "#555", marginBottom: 10, lineHeight: 1.5 }}>Used for AI tax analysis in the Tax Reporting page. Synced across devices via Firestore.</div>
               <input
                 type="password"
                 value={anthropicKey}
-                onChange={e => { setAnthropicKey(e.target.value); localStorage.setItem("anthropic_key", e.target.value); }}
+                onChange={e => { setAnthropicKey(e.target.value); localStorage.setItem("anthropic_key", e.target.value); setAnthropicSyncStatus(""); }}
                 placeholder="sk-ant-api03-..."
                 style={{ width: "100%", background: "#111", border: "1px solid #2a2a4a", borderRadius: 8, color: "#ccc", fontSize: 12, padding: "10px 12px", boxSizing: "border-box", outline: "none", fontFamily: "monospace" }}
               />
-              {anthropicKey
-                ? <div style={{ fontSize: 11, color: "#00e676", marginTop: 6 }}>✓ Key saved — {anthropicKey.slice(0, 14)}...</div>
-                : <div style={{ fontSize: 11, color: "#555", marginTop: 6 }}>No key set. Get one at console.anthropic.com</div>}
-              {anthropicKey && (
-                <button onClick={() => { setAnthropicKey(""); localStorage.removeItem("anthropic_key"); }}
-                  style={{ marginTop: 10, background: "none", border: "1px solid #333", borderRadius: 7, color: "#555", fontSize: 11, padding: "5px 12px", cursor: "pointer" }}>
-                  Clear Key
+              <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
+                <button
+                  disabled={!anthropicKey || anthropicSyncStatus === "saving"}
+                  onClick={() => {
+                    setAnthropicSyncStatus("saving");
+                    fsSet("settings", "app", { anthropicKey })
+                      .then(() => { setAnthropicSyncStatus("saved"); setTimeout(() => setAnthropicSyncStatus(""), 3000); })
+                      .catch(() => setAnthropicSyncStatus("error"));
+                  }}
+                  style={{ background: anthropicSyncStatus === "saved" ? "#00c853" : anthropicSyncStatus === "error" ? "#ff4444" : "#7b6ef6", border: "none", borderRadius: 7, color: "#fff", fontSize: 11, fontWeight: 700, padding: "6px 14px", cursor: anthropicKey ? "pointer" : "not-allowed", opacity: anthropicKey ? 1 : 0.4 }}>
+                  {anthropicSyncStatus === "saving" ? "Saving..." : anthropicSyncStatus === "saved" ? "Saved ✓" : anthropicSyncStatus === "error" ? "Error ✗" : "Save & Sync"}
                 </button>
-              )}
+                {anthropicKey && (
+                  <button onClick={() => { setAnthropicKey(""); localStorage.removeItem("anthropic_key"); fsSet("settings","app",{anthropicKey:""}).catch(console.warn); setAnthropicSyncStatus(""); }}
+                    style={{ background: "none", border: "1px solid #333", borderRadius: 7, color: "#555", fontSize: 11, padding: "6px 12px", cursor: "pointer" }}>
+                    Clear
+                  </button>
+                )}
+              </div>
+              {anthropicKey && anthropicSyncStatus === "" && <div style={{ fontSize: 11, color: "#555", marginTop: 6 }}>Key entered — press Save & Sync to share across devices</div>}
             </div>
             <div style={{ background: "#0d1414", border: "1px solid #1a3a2a", borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "#00e676", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>CoinMarketCap API Key</div>
@@ -4613,6 +4828,355 @@ export default function CryptoApp() {
         )}
 
       </div>
+
+      {/* ADD MEMBER MODAL */}
+      {addMemberOpen && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}
+          onClick={e => { if (e.target === e.currentTarget) setAddMemberOpen(false); }}>
+          <div style={{ background:"#111", borderRadius:"20px 20px 0 0", padding:"24px 20px 40px", width:"100%", maxWidth:480 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+              <div style={{ fontSize:17, fontWeight:700, color:"#fff" }}>New Portfolio Member</div>
+              <button onClick={() => setAddMemberOpen(false)} style={{ background:"none", border:"none", color:"#666", fontSize:22, cursor:"pointer", lineHeight:1 }}>×</button>
+            </div>
+            {[
+              { label:"Full Name", key:"name", placeholder:"e.g. Jorge Medina" },
+              { label:"Initials (2 letters)", key:"avatar", placeholder:"e.g. JM", maxLength:2 },
+              { label:"Exchange / Platform", key:"exchange", placeholder:"e.g. Coinbase, Kraken, iTrust" },
+            ].map(({ label, key, placeholder, maxLength }) => (
+              <div key={key} style={{ marginBottom:14 }}>
+                <div style={{ fontSize:11, fontWeight:600, color:"#666", marginBottom:5, textTransform:"uppercase", letterSpacing:"0.06em" }}>{label}</div>
+                <input
+                  value={newMemberForm[key]}
+                  onChange={e => setNewMemberForm(f => ({ ...f, [key]: maxLength ? e.target.value.toUpperCase().slice(0, maxLength) : e.target.value }))}
+                  placeholder={placeholder}
+                  style={{ width:"100%", background:"#1a1a1a", border:"1px solid #2a2a2a", borderRadius:10, color:"#fff", fontSize:14, padding:"11px 14px", boxSizing:"border-box", outline:"none" }}
+                />
+              </div>
+            ))}
+            <button
+              disabled={!newMemberForm.name.trim()}
+              onClick={async () => {
+                const name = newMemberForm.name.trim();
+                const avatar = newMemberForm.avatar.trim() || name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
+                const id = name.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+                const doc = { id, name, avatar, exchange: newMemberForm.exchange.trim() || "Manual", createdAt: new Date().toISOString() };
+                try {
+                  await fsSet("members", id, doc);
+                  setFirestoreMembers(prev => [...prev.filter(m => m.id !== id), doc]);
+                  setAddMemberOpen(false);
+                  setPage("portfolios");
+                } catch (err) { alert("Failed to save: " + err.message); }
+              }}
+              style={{ width:"100%", background: newMemberForm.name.trim() ? "#00e676" : "#1a1a1a", border:"none", borderRadius:12, color: newMemberForm.name.trim() ? "#000" : "#444", fontSize:15, fontWeight:700, padding:"14px", cursor: newMemberForm.name.trim() ? "pointer" : "not-allowed" }}>
+              Add Member
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── INHERITANCE PAGE ── */}
+      {page === "inheritance" && (() => {
+        const jorge = MEMBERS.find(m => m.id === "jorge");
+        const executor = MEMBERS.find(m => m.id === inheritanceExecutorId) || MEMBERS[0];
+        const jorgeHoldings = jorge?.holdings || {};
+        const jorgeCoins = Object.keys(jorgeHoldings).filter(c => (jorgeHoldings[c] || 0) > 0.00001);
+        const altCoins = jorgeCoins.filter(c => c !== "BTC" && c !== "ETH");
+        const allAltsUSD = altCoins.reduce((s, c) => s + (jorgeHoldings[c] || 0) * (COIN_PRICES[c] || 0), 0);
+        const totalEstateUSD = jorgeCoins.reduce((s, c) => s + (jorgeHoldings[c] || 0) * (COIN_PRICES[c] || 0), 0);
+        const allNonJorge = MEMBERS.filter(m => m.id !== "jorge");
+        const activeBeneficiaryIds = inheritanceBeneficiaryIds ?? allNonJorge.map(m => m.id);
+        const beneficiaries = allNonJorge.filter(m => activeBeneficiaryIds.includes(m.id));
+        const PIE_COLORS = ["#f7931a","#00e676","#2979ff","#ff4081","#aa00ff","#ffab40","#00bcd4","#ff6b6b","#69db7c","#ffd43b"];
+
+        // Helper: get effective pct for a coin (alts use _altcoins group)
+        const getPct = (coin, memberId) => {
+          if (coin === "BTC" || coin === "ETH") return inheritanceAllocs[coin]?.[memberId] || 0;
+          return inheritanceAllocs._altcoins?.[memberId] || 0;
+        };
+        const getDraftPct = (coin, memberId) => {
+          if (coin === "BTC" || coin === "ETH") return inheritanceDraft[coin]?.[memberId] || 0;
+          return inheritanceDraft._altcoins?.[memberId] || 0;
+        };
+
+        const beneficiaryTotals = beneficiaries.map((m, i) => {
+          const btcPct = getPct("BTC", m.id);
+          const ethPct = getPct("ETH", m.id);
+          const altPct = inheritanceAllocs._altcoins?.[m.id] || 0;
+          const inheritedCoins = [
+            ...(jorgeHoldings.BTC > 0.00001 && btcPct > 0 ? [{ coin: "BTC", pct: btcPct, qty: jorgeHoldings.BTC * btcPct / 100, usd: jorgeHoldings.BTC * btcPct / 100 * (COIN_PRICES.BTC || 0) }] : []),
+            ...(jorgeHoldings.ETH > 0.00001 && ethPct > 0 ? [{ coin: "ETH", pct: ethPct, qty: jorgeHoldings.ETH * ethPct / 100, usd: jorgeHoldings.ETH * ethPct / 100 * (COIN_PRICES.ETH || 0) }] : []),
+            ...(altCoins.length > 0 && altPct > 0 ? [{ coin: "Altcoins", pct: altPct, qty: null, usd: allAltsUSD * altPct / 100 }] : []),
+          ];
+          const inheritedUSD = inheritedCoins.reduce((s, x) => s + x.usd, 0);
+          const ownUSD = Object.entries(m.holdings || {}).reduce((s, [c, q]) => s + q * (COIN_PRICES[c] || 0), 0);
+          return { ...m, inheritedCoins, inheritedUSD, ownUSD, color: PIE_COLORS[i % PIE_COLORS.length] };
+        });
+
+        const pieData = beneficiaryTotals.filter(b => b.inheritedUSD > 0)
+          .map(b => ({ name: b.name.split(" ")[0], value: Math.round(b.inheritedUSD), color: b.color }));
+
+        const ALLOC_GROUPS = [
+          ...(jorgeHoldings.BTC > 0.00001 ? ["BTC"] : []),
+          ...(jorgeHoldings.ETH > 0.00001 ? ["ETH"] : []),
+          ...(altCoins.length > 0 ? ["_altcoins"] : []),
+        ];
+        const groupLabel = g => g === "_altcoins" ? "Altcoins" : g;
+        const groupSub = g => g === "_altcoins" ? `${altCoins.length} coins · ${fmtFull(allAltsUSD)}` : fmtFull((jorgeHoldings[g] || 0) * (COIN_PRICES[g] || 0));
+
+        const unallocated = ALLOC_GROUPS.filter(g => {
+          const total = beneficiaries.reduce((s, m) => s + (inheritanceAllocs[g]?.[m.id] || 0), 0);
+          return total < 99.9;
+        }).map(groupLabel);
+
+        return (
+          <div className="fade-in" style={{ padding: "18px 18px 120px" }}>
+
+            {/* Executor / Estate Card — collapsible */}
+            <div style={{ background: "linear-gradient(135deg,#0a1628,#0f2040)", border: "1px solid #1a3a6a", borderRadius: 16, marginBottom: 16, overflow: "hidden" }}>
+              {/* Always-visible header row */}
+              <div onClick={() => setExecutorCardCollapsed(v => !v)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", cursor: "pointer" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: "50%", background: "#0d2040", border: "2px solid #2979ff44", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "#4d8aff", flexShrink: 0 }}>{executor?.avatar}</div>
+                  <div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#2979ff", letterSpacing: "0.08em", textTransform: "uppercase" }}>Estate Executor</div>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{executor?.name}</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 10, color: "#556" }}>Total Estate</div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: "#f7931a" }}>{fmtFull(totalEstateUSD)}</div>
+                  </div>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#444" strokeWidth="2" style={{ transform: executorCardCollapsed ? "none" : "rotate(180deg)", transition: "transform 0.2s", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
+                </div>
+              </div>
+              {/* Expanded content */}
+              {!executorCardCollapsed && (
+                <div style={{ borderTop: "1px solid #1a3a6a22", padding: "14px 16px 16px" }}>
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 10, color: "#556", marginBottom: 6 }}>Change executor</div>
+                    <select value={inheritanceExecutorId}
+                      onChange={e => saveInheritanceAllocs(inheritanceAllocs, e.target.value)}
+                      style={{ background: "#0d1f3c", border: "1px solid #1a3a6a", borderRadius: 8, padding: "6px 10px", fontSize: 12, color: "#4d8aff", cursor: "pointer", width: "100%" }}>
+                      {MEMBERS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 10, color: "#556", marginBottom: 8 }}>Beneficiaries</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {allNonJorge.map(m => {
+                        const included = activeBeneficiaryIds.includes(m.id);
+                        return (
+                          <div key={m.id} onClick={() => {
+                            const next = included ? activeBeneficiaryIds.filter(id => id !== m.id) : [...activeBeneficiaryIds, m.id];
+                            saveInheritanceAllocs(inheritanceAllocs, inheritanceExecutorId, next);
+                          }} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                            <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${included ? "#00e676" : "#333"}`, background: included ? "#00e67622" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                              {included && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>}
+                            </div>
+                            <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#161616", border: "1px solid #2a2a2a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#888" }}>{m.avatar}</div>
+                            <span style={{ fontSize: 12, color: included ? "#fff" : "#555" }}>{m.name}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 10, color: "#556", marginBottom: 8 }}>Estate holdings</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {[...["BTC","ETH"].filter(c => jorgeHoldings[c] > 0.00001), ...(altCoins.length > 0 ? ["_alt"] : [])].map(c => {
+                      if (c === "_alt") return (
+                        <div key="_alt" style={{ background: "#ffffff08", borderRadius: 8, padding: "6px 10px", minWidth: 80 }}>
+                          <div style={{ fontSize: 10, color: "#556" }}>Altcoins ({altCoins.length})</div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>—</div>
+                          <div style={{ fontSize: 10, color: "#888" }}>{fmtFull(allAltsUSD)}</div>
+                        </div>
+                      );
+                      return (
+                        <div key={c} style={{ background: "#ffffff08", borderRadius: 8, padding: "6px 10px", minWidth: 80 }}>
+                          <div style={{ fontSize: 10, color: "#556" }}>{c}</div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>{(jorgeHoldings[c] || 0).toFixed(c === "BTC" ? 5 : 4)}</div>
+                          <div style={{ fontSize: 10, color: "#888" }}>{fmtFull((jorgeHoldings[c] || 0) * (COIN_PRICES[c] || 0))}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Unallocated warning */}
+            {unallocated.length > 0 && (
+              <div style={{ background: "#1e1000", border: "1px solid #f7931a33", borderRadius: 12, padding: "10px 14px", marginBottom: 14, display: "flex", gap: 10, alignItems: "center" }}>
+                <span style={{ fontSize: 18, lineHeight: 1 }}>⚠</span>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#f7931a" }}>Unallocated</div>
+                  <div style={{ fontSize: 11, color: "#888" }}>{unallocated.join(", ")} — under 100% allocated</div>
+                </div>
+              </div>
+            )}
+
+            {/* Pie chart */}
+            {pieData.length > 0 && (
+              <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 16, padding: "16px", marginBottom: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 12 }}>Allocation Split</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                  <ResponsiveContainer width={140} height={140}>
+                    <PieChart>
+                      <Pie data={pieData} cx="50%" cy="50%" innerRadius={38} outerRadius={62} paddingAngle={3} dataKey="value">
+                        {pieData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div style={{ flex: 1 }}>
+                    {pieData.map(d => (
+                      <div key={d.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <div style={{ width: 8, height: 8, borderRadius: 2, background: d.color, flexShrink: 0 }} />
+                          <span style={{ fontSize: 12, color: "#aaa" }}>{d.name}</span>
+                        </div>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: "#fff" }}>{fmtFull(d.value)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Beneficiary section header + edit toggle */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>Beneficiaries</div>
+              <button onClick={() => {
+                if (inheritanceEditMode) { setInheritanceEditMode(false); setInheritanceDraft({}); }
+                else { setInheritanceDraft(JSON.parse(JSON.stringify(inheritanceAllocs))); setInheritanceEditMode(true); }
+              }} style={{ background: inheritanceEditMode ? "#ff4a4a18" : "#ffffff0e", border: `1px solid ${inheritanceEditMode ? "#ff4a4a44" : "#2a2a2a"}`, borderRadius: 8, padding: "5px 12px", fontSize: 11, fontWeight: 600, color: inheritanceEditMode ? "#ff6b6b" : "#888", cursor: "pointer" }}>
+                {inheritanceEditMode ? "Cancel" : "Edit Allocations"}
+              </button>
+            </div>
+
+            {/* Edit panel — BTC / ETH / Altcoins only */}
+            {inheritanceEditMode && (
+              <div style={{ background: "#081808", border: "1px solid #00e67622", borderRadius: 14, padding: "14px", marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: "#00e676", fontWeight: 600, marginBottom: 12 }}>Set % per beneficiary. BTC and ETH are split individually. Altcoins % applies to all other coins equally.</div>
+                {ALLOC_GROUPS.map(group => {
+                  const totalPct = beneficiaries.reduce((s, m) => s + (parseFloat(inheritanceDraft[group]?.[m.id]) || 0), 0);
+                  return (
+                    <div key={group} style={{ marginBottom: 16 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 6 }}>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{groupLabel(group)}</div>
+                          <div style={{ fontSize: 10, color: "#556" }}>{groupSub(group)}</div>
+                        </div>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: totalPct > 100 ? "#ff4a4a" : totalPct >= 99.9 ? "#00e676" : "#f7931a" }}>{totalPct.toFixed(0)}%</span>
+                      </div>
+                      {beneficiaries.map(m => (
+                        <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                          <div style={{ width: 26, height: 26, borderRadius: "50%", background: "#161616", border: "1px solid #2a2a2a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#888", flexShrink: 0 }}>{m.avatar}</div>
+                          <span style={{ fontSize: 11, color: "#777", flex: 1 }}>{m.name.split(" ")[0]}</span>
+                          <input type="number" min="0" max="100" placeholder="0"
+                            value={inheritanceDraft[group]?.[m.id] ?? ""}
+                            onChange={e => {
+                              const val = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
+                              setInheritanceDraft(prev => ({ ...prev, [group]: { ...(prev[group] || {}), [m.id]: val } }));
+                            }}
+                            style={{ width: 54, background: "#111", border: "1px solid #2a2a2a", borderRadius: 6, padding: "4px 6px", fontSize: 12, color: "#fff", textAlign: "center" }}
+                          />
+                          <span style={{ fontSize: 11, color: "#444" }}>%</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+                <button disabled={inheritanceSaving} onClick={async () => { await saveInheritanceAllocs(inheritanceDraft, inheritanceExecutorId); setInheritanceEditMode(false); setInheritanceDraft({}); }}
+                  style={{ width: "100%", background: "#00e676", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, color: "#000", cursor: "pointer", marginTop: 4 }}>
+                  {inheritanceSaving ? "Saving…" : "Save Allocations"}
+                </button>
+              </div>
+            )}
+
+            {/* Beneficiary cards */}
+            {beneficiaryTotals.map(b => {
+              const isExpanded = expandedBeneficiary === b.id;
+              const combinedUSD = b.ownUSD + b.inheritedUSD;
+              return (
+                <div key={b.id} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 16, marginBottom: 10, overflow: "hidden" }}>
+                  <div onClick={() => setExpandedBeneficiary(isExpanded ? null : b.id)} style={{ padding: "14px 16px", cursor: "pointer" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#161616", border: `2px solid ${b.color}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: b.color, flexShrink: 0 }}>{b.avatar}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>{b.name}</div>
+                        <div style={{ fontSize: 11, color: "#444", marginTop: 1 }}>Own + inheritance</div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 18, fontWeight: 800, color: "#fff" }}>{fmtFull(combinedUSD)}</div>
+                        <div style={{ fontSize: 11, color: b.inheritedUSD > 0 ? b.color : "#444", marginTop: 1 }}>
+                          {b.inheritedUSD > 0 ? `↓ ${fmtFull(b.inheritedUSD)} estate` : "No allocation"}
+                        </div>
+                      </div>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#444" strokeWidth="2" style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
+                    </div>
+                  </div>
+                  {isExpanded && (
+                    <div style={{ borderTop: "1px solid #181818", padding: "12px 16px 14px" }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "#333", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>Own Holdings</div>
+                      {Object.entries(b.holdings || {}).filter(([,q]) => q > 0.00001).length === 0
+                        ? <div style={{ fontSize: 11, color: "#333", marginBottom: 10 }}>No holdings recorded</div>
+                        : Object.entries(b.holdings || {}).filter(([,q]) => q > 0.00001).map(([coin, qty]) => (
+                          <div key={coin} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: "#888", minWidth: 36 }}>{coin}</span>
+                              <span style={{ fontSize: 11, color: "#444" }}>{qty < 1 ? qty.toFixed(5) : qty.toFixed(3)}</span>
+                            </div>
+                            <span style={{ fontSize: 11, color: "#666" }}>{fmtFull(qty * (COIN_PRICES[coin] || 0))}</span>
+                          </div>
+                        ))
+                      }
+                      {b.inheritedCoins.length > 0 && (
+                        <>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: "#333", letterSpacing: "0.08em", textTransform: "uppercase", margin: "12px 0 8px" }}>From Estate (Jorge)</div>
+                          {b.inheritedCoins.map(({ coin, pct, qty, usd }) => (
+                            <div key={coin} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                <span style={{ fontSize: 11, fontWeight: 700, color: "#888", minWidth: 36 }}>{coin}</span>
+                                <span style={{ fontSize: 10, background: b.color + "22", color: b.color, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>{pct}%</span>
+                                <span style={{ fontSize: 11, color: "#444" }}>{qty < 1 ? qty.toFixed(5) : qty.toFixed(3)}</span>
+                              </div>
+                              <span style={{ fontSize: 11, color: b.color }}>{fmtFull(usd)}</span>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                      <div style={{ borderTop: "1px solid #1a1a1a", marginTop: 10, paddingTop: 10, display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "#aaa" }}>Combined Total</span>
+                        <span style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>{fmtFull(combinedUSD)}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* AI Executive Summary */}
+            <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 16, padding: "16px", marginTop: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>AI Executive Summary</div>
+                  <div style={{ fontSize: 11, color: "#444", marginTop: 2 }}>For the executor · annual reference</div>
+                </div>
+                <button onClick={() => generateInheritanceSummary(jorgeHoldings, inheritanceAllocs)} disabled={inheritanceAiLoading}
+                  style={{ background: "linear-gradient(135deg,#0d1b3e,#1a2f5e)", border: "1px solid #2979ff44", borderRadius: 10, padding: "8px 14px", fontSize: 11, fontWeight: 700, color: "#4d8aff", cursor: "pointer", opacity: inheritanceAiLoading ? 0.6 : 1 }}>
+                  {inheritanceAiLoading ? "Generating…" : "✦ Generate"}
+                </button>
+              </div>
+              {inheritanceAiError && <div style={{ fontSize: 11, color: "#ff6b6b", marginBottom: 8 }}>{inheritanceAiError}</div>}
+              {inheritanceAiSummary
+                ? <div style={{ fontSize: 12, color: "#aaa", lineHeight: 1.8, whiteSpace: "pre-wrap" }}>{inheritanceAiSummary}</div>
+                : !inheritanceAiLoading && <div style={{ fontSize: 11, color: "#2a2a2a", textAlign: "center", padding: "20px 0" }}>Press Generate to create a professional executive summary for the executor.</div>
+              }
+              {inheritanceAiLoading && <div style={{ fontSize: 11, color: "#444", textAlign: "center", padding: "20px 0" }}>Generating summary…</div>}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* FOOTER */}
       <div className="bottom-nav-bar" style={{

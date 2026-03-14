@@ -2,7 +2,26 @@
   "permissions": {
     "allow": [
       "Bash(git -C \"c:/Users/gmedi/Dropbox/22. APPS/portfolio-app\" status)",
-      "Bash(gh auth:*)"
+      "Bash(gh auth:*)",
+      "Bash(npx vite:*)",
+      "Bash(node_modules/.bin/vite build:*)",
+      "Bash(npm install:*)",
+      "Bash(gh run:*)",
+      "Bash(npx vercel:*)",
+      "Bash(grep -n 'overflow: \"\"hidden\"\", overflow: \"\"hidden\"\"' src/App.jsx)",
+      "Bash(node -e \":*)",
+      "Bash(npm run:*)",
+      "Bash(npx firebase:*)",
+      "Bash(node -e \"const p=require\\(''./package.json''\\); console.log\\(''recharts:'', p.dependencies.recharts\\); console.log\\(''vite:'', p.devDependencies.vite\\)\")",
+      "Bash(ls \"c:\\\\Users\\\\gmedi\\\\Dropbox\\\\22. APPS\\\\portfolio-app\\\\node_modules\\\\recharts\\\\dist\"\" 2>/dev/null || ls \"c:UsersgmediDropbox22. APPSportfolio-appnode_modulesrecharts\"\")",
+      "Read(//c/Users/gmedi/.claude/projects/c--Users-gmedi-Dropbox-22--APPS-portfolio-app/memory/**)",
+      "Read(//c/Users/gmedi/.claude/projects/c--Users-gmedi-Dropbox-22--APPS-portfolio-app/**)",
+      "Bash(awk 'NR>=12000 && NR<=36000 && /^let |^const [A-Z]/' dist/assets/index-DiZExqXO.js)",
+      "Bash(awk 'NR>=12000 && NR<=36000' dist/assets/index-DiZExqXO.js)",
+      "Bash(awk 'NR>=12000 && NR<=36836' dist/assets/index-DiZExqXO.js)",
+      "Bash(grep -v \"//\")",
+      "Bash(awk 'NR>=12000 && NR<=36220' dist/assets/index-DiZExqXO.js)",
+      "Bash(awk 'NR>=36220 && NR<=36836' dist/assets/index-DiZExqXO.js)"
     ]
   }
 }
