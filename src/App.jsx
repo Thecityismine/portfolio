@@ -1827,10 +1827,11 @@ export default function CryptoApp() {
   const [anthropicKey, setAnthropicKey] = useState(() => localStorage.getItem("anthropic_key") || "");
   const [cmcKey, setCmcKey] = useState(() => localStorage.getItem("cmc_key") || "");
   const [livePrices, setLivePrices] = useState({});
+  const [liveChanges, setLiveChanges] = useState({}); // { BTC: -2.3, ETH: 1.1, ... } percent_change_24h
   const [priceStatus, setPriceStatus] = useState("static"); // "static" | "loading" | "live" | "error"
 
   useEffect(() => {
-    if (!cmcKey) { setLivePrices({}); setPriceStatus("static"); return; }
+    if (!cmcKey) { setLivePrices({}); setLiveChanges({}); setPriceStatus("static"); return; }
     let cancelled = false;
     const fetchPrices = async () => {
       setPriceStatus("loading");
@@ -1840,7 +1841,8 @@ export default function CryptoApp() {
         if (!res.ok) { setPriceStatus("error"); return; }
         const data = await res.json();
         if (data.error) { setPriceStatus("error"); return; }
-        setLivePrices(data);
+        setLivePrices(data.prices || data);   // backward-compat if old format
+        setLiveChanges(data.changes || {});
         setPriceStatus("live");
       } catch { if (!cancelled) setPriceStatus("error"); }
     };
@@ -2696,18 +2698,25 @@ export default function CryptoApp() {
       </div>
 
       {/* TICKER */}
-      <div style={{ display: "flex", gap: 6, padding: "8px 18px", borderBottom: "1px solid #0c0c0c" }}>
-        {[
-          { sym: "₿", name: "BTC", price: fmtFull(BTC_PRICE), pct: "+2.41%", up: true, color: "#f7931a" },
-          { sym: "Ξ", name: "ETH", price: fmtFull(ETH_PRICE), pct: "+1.12%", up: true, color: "#627eea" },
-        ].map(t => (
-          <div key={t.name} className="ticker-item" style={{ flex: 1, justifyContent: "center" }}>
-            <span className="ticker-coin" style={{ color: t.color }}>{t.sym}</span>
-            <span className="ticker-price">{t.price}</span>
-            <span className={`ticker-pct ${t.up ? "up" : "down"}`}>{t.pct}</span>
+      {(() => {
+        const btcChg = liveChanges.BTC ?? null;
+        const ethChg = liveChanges.ETH ?? null;
+        const fmt24h = (chg) => chg === null ? "—" : `${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%`;
+        return (
+          <div style={{ display: "flex", gap: 6, padding: "8px 18px", borderBottom: "1px solid #0c0c0c" }}>
+            {[
+              { sym: "₿", name: "BTC", price: fmtFull(BTC_PRICE), pct: fmt24h(btcChg), up: (btcChg ?? 0) >= 0, color: "#f7931a" },
+              { sym: "Ξ", name: "ETH", price: fmtFull(ETH_PRICE), pct: fmt24h(ethChg), up: (ethChg ?? 0) >= 0, color: "#627eea" },
+            ].map(t => (
+              <div key={t.name} className="ticker-item" style={{ flex: 1, justifyContent: "center" }}>
+                <span className="ticker-coin" style={{ color: t.color }}>{t.sym}</span>
+                <span className="ticker-price">{t.price}</span>
+                <span className={`ticker-pct ${t.up ? "up" : "down"}`}>{t.pct}</span>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        );
+      })()}
 
       <div style={{ height: "calc(100vh - 165px)", overflowY: "auto", paddingBottom: 80 }}>
 
@@ -2726,22 +2735,29 @@ export default function CryptoApp() {
                   {totalUnrealized >= 0 ? "+" : ""}{totalCostBasis > 0 ? ((totalUnrealized / totalCostBasis) * 100).toFixed(2) : "0.00"}%
                 </span>
               </div>
-              {/* 24H Change */}
+              {/* 24H Change — real weighted average across all holdings */}
               {(() => {
-                const dailyChangePct = 0.0241 * (BTC_PRICE / 108000) + 0.0112 * (ETH_PRICE / 2400);
-                const dailyChangeUSD = totalUSD * dailyChangePct * 0.68;
-                const isUp = dailyChangeUSD >= 0;
-                return (
+                const hasLive = Object.keys(liveChanges).length > 0;
+                const dailyChangeUSD = hasLive
+                  ? MEMBERS.reduce((sum, m) =>
+                      sum + Object.entries(m.holdings).reduce((s, [coin, qty]) =>
+                        s + qty * (COIN_PRICES[coin] || 0) * ((liveChanges[coin] || 0) / 100), 0
+                      ), 0)
+                  : null;
+                const dailyChangePct = dailyChangeUSD !== null && totalUSD > 0
+                  ? (dailyChangeUSD / totalUSD) * 100 : null;
+                const isUp = (dailyChangeUSD ?? 0) >= 0;
+                return dailyChangePct !== null ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
                     <span style={{ fontSize: 12, color: "#555" }}>Today</span>
                     <span style={{ fontSize: 13, fontWeight: 600, color: isUp ? "#00e676" : "#ff4444" }}>
                       {isUp ? "+" : ""}{fmtFull(dailyChangeUSD)}
                     </span>
                     <span style={{ fontSize: 12, fontWeight: 500, color: isUp ? "#00e676" : "#ff4444" }}>
-                      ({isUp ? "+" : ""}{(dailyChangePct * 68).toFixed(2)}%)
+                      ({isUp ? "+" : ""}{dailyChangePct.toFixed(2)}%)
                     </span>
                   </div>
-                );
+                ) : null;
               })()}
             </div>
 

@@ -36,13 +36,15 @@ export default async function handler(req, res) {
     }
 
     const prices = {};
+    const changes = {};
     for (const [sym, info] of Object.entries(data.data)) {
       prices[sym] = info.quote.USD.price;
+      changes[sym] = info.quote.USD.percent_change_24h ?? 0;
     }
 
     // Cache response for 60 seconds on Vercel's edge
     res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=30');
-    return res.status(200).json(prices);
+    return res.status(200).json({ prices, changes });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
