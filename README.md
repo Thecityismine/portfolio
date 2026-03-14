@@ -69,7 +69,7 @@ Opens at `http://localhost:5173`
 
 | Key | Value |
 |-----|-------|
-| `VITE_FIREBASE_API_KEY` | `AIzaSyCYkrWjnppZkZqv0EuR9Ur_X8xn73w0ScE` |
+| `VITE_FIREBASE_API_KEY` | `your-firebase-api-key` |
 | `VITE_FIREBASE_AUTH_DOMAIN` | `portfolio-f86b9.firebaseapp.com` |
 | `VITE_FIREBASE_PROJECT_ID` | `portfolio-f86b9` |
 | `VITE_FIREBASE_STORAGE_BUCKET` | `portfolio-f86b9.firebasestorage.app` |
