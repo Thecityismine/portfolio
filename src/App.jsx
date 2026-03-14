@@ -3707,7 +3707,7 @@ export default function CryptoApp() {
               <div style={{ fontSize: 13, fontWeight: 500, color: "#666", marginBottom: 10 }}>Balance History</div>
               <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "12px 8px 8px" }}>
                 <ResponsiveContainer width="100%" height={130}>
-                  <AreaChart data={snapshotsToChart(snapshots, "ALL", s => s.members?.[member?.id] ?? 0) || generateChartData(member?.usd || 0, "ALL")}>
+                  <AreaChart data={snapshotsToChart(snapshots, "ALL", s => s.totalUSD) || generateChartData(totalUSD, "ALL")}>
                     <defs>
                       <linearGradient id="iGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="#f7931a" stopOpacity={0.3} />
@@ -3722,53 +3722,106 @@ export default function CryptoApp() {
               </div>
             </div>
 
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 13, fontWeight: 500, color: "#666", marginBottom: 10 }}>Portfolio Performance</div>
-              <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "14px 10px 10px" }}>
-                <ResponsiveContainer width="100%" height={120}>
-                  <BarChart data={perfData} barGap={2} barCategoryGap={10}>
-                    <XAxis dataKey="q" tick={{ fontSize: 12, fill: "#555" }} axisLine={false} tickLine={false} />
-                    <YAxis hide />
-                    <Tooltip contentStyle={TOOLTIP_STYLE} />
-                    <Bar dataKey="portfolio" fill="#00e676" radius={2} />
-                    <Bar dataKey="btc" fill="#f7931a" radius={2} />
-                    <Bar dataKey="spy" fill="#627eea" radius={2} />
-                  </BarChart>
-                </ResponsiveContainer>
-                <div style={{ display: "flex", gap: 16, justifyContent: "center", marginTop: 8 }}>
-                  {[["Portfolio", "#00e676"], ["BTC", "#f7931a"], ["SPY", "#627eea"]].map(([l, c]) => (
-                    <div key={l} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: 2, background: c }} />
-                      <span style={{ fontSize: 12, fontWeight: 500, color: "#777" }}>{l}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 13, fontWeight: 500, color: "#666", marginBottom: 10 }}>Gains Reporting</div>
-              <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", padding: "10px 14px", borderBottom: "1px solid #1e1e1e" }}>
-                  {["Coin", "Realized", "Unrealized"].map(h => <span key={h} style={{ fontSize: 11, fontWeight: 600, color: "#555", textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</span>)}
-                </div>
-                {[
-                  { coin: "BTC", sym: "₿", color: "#f7931a", realized: 12200, unrealized: 134800 },
-                  { coin: "ETH", sym: "Ξ", color: "#627eea", realized: 9170, unrealized: 20734 },
-                  { coin: "ADA", sym: "⬡", color: "#4da6ff", realized: 19518, unrealized: 3251 },
-                  { coin: "XRP", sym: "✦", color: "#00aad4", realized: 2400, unrealized: 1800 },
-                ].map((row, i, arr) => (
-                  <div key={row.coin} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", padding: "12px 14px", borderBottom: i < arr.length-1 ? "1px solid #1a1a1a" : "none", alignItems: "center" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                      <span style={{ color: row.color, fontWeight: 700, fontSize: 15 }}>{row.sym}</span>
-                      <span style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>{row.coin}</span>
-                    </div>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: "#00e676" }}>+{fmt(row.realized)}</span>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: "#00e676" }}>+{fmt(row.unrealized)}</span>
+            {(() => {
+              // Build quarterly return data from real snapshots
+              const byQuarter = {};
+              snapshots.forEach(s => {
+                const d = new Date(s.date + "T12:00:00");
+                const q = `Q${Math.ceil((d.getMonth() + 1) / 3)}'${String(d.getFullYear()).slice(2)}`;
+                if (!byQuarter[q]) byQuarter[q] = { first: s.totalUSD, last: s.totalUSD, order: d.getTime() };
+                byQuarter[q].last = s.totalUSD;
+              });
+              const quarterlyPerf = Object.entries(byQuarter)
+                .sort(([,a],[,b]) => a.order - b.order)
+                .slice(-4)
+                .map(([q, { first, last }]) => ({
+                  q, portfolio: first > 0 ? parseFloat(((last - first) / first * 100).toFixed(1)) : 0
+                }));
+              const chartData = quarterlyPerf.length >= 2 ? quarterlyPerf : perfData;
+              const isReal = quarterlyPerf.length >= 2;
+              return (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: "#666", marginBottom: 10 }}>
+                    Portfolio Performance{!isReal && <span style={{ fontSize: 11, color: "#444", marginLeft: 8 }}>(sample — builds from snapshots)</span>}
                   </div>
-                ))}
-              </div>
-            </div>
+                  <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "14px 10px 10px" }}>
+                    <ResponsiveContainer width="100%" height={120}>
+                      <BarChart data={chartData} barGap={2} barCategoryGap={10}>
+                        <XAxis dataKey="q" tick={{ fontSize: 12, fill: "#555" }} axisLine={false} tickLine={false} />
+                        <YAxis hide />
+                        <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => [`${v >= 0 ? "+" : ""}${v}%`, "Return"]} />
+                        <Bar dataKey="portfolio" radius={2}>
+                          {chartData.map((entry, i) => (
+                            <Cell key={i} fill={(entry.portfolio ?? 0) >= 0 ? "#00e676" : "#ff4444"} />
+                          ))}
+                        </Bar>
+                        {!isReal && <Bar dataKey="btc" fill="#f7931a" radius={2} />}
+                      </BarChart>
+                    </ResponsiveContainer>
+                    {!isReal && (
+                      <div style={{ display: "flex", gap: 16, justifyContent: "center", marginTop: 8 }}>
+                        {[["Portfolio", "#00e676"], ["BTC", "#f7931a"]].map(([l, c]) => (
+                          <div key={l} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                            <div style={{ width: 8, height: 8, borderRadius: 2, background: c }} />
+                            <span style={{ fontSize: 12, fontWeight: 500, color: "#777" }}>{l}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {(() => {
+              const COIN_COLOR_G = {BTC:"#f7931a",ETH:"#627eea",ADA:"#4da6ff",LTC:"#b8b8b8",SOL:"#9945ff",DOT:"#e6007a",XRP:"#00aad4",ALGO:"#00b4d8",CRV:"#d84627",XLM:"#14b8d4",ZEC:"#f4b728",BAT:"#ff5000",EOS:"#6e5da8",XMR:"#ff6600",LINK:"#2a5ada"};
+              // Realized proceeds per coin from sell transactions
+              const realizedByCoin = {};
+              TRANSACTIONS.filter(t => t.type === "sell" && t.usdTotal > 0).forEach(t => {
+                realizedByCoin[t.coin] = (realizedByCoin[t.coin] || 0) + t.usdTotal;
+              });
+              // Unrealized current value per coin across all members
+              const unrealizedByCoin = {};
+              MEMBERS.forEach(m => {
+                Object.entries(m.holdings || {}).forEach(([coin, qty]) => {
+                  const val = qty * (COIN_PRICES[coin] || 0);
+                  unrealizedByCoin[coin] = (unrealizedByCoin[coin] || 0) + val;
+                });
+              });
+              const gainCoins = [
+                ...new Set([...Object.keys(realizedByCoin), ...Object.keys(unrealizedByCoin)])
+              ].map(coin => ({
+                coin,
+                realized: realizedByCoin[coin] || 0,
+                unrealized: unrealizedByCoin[coin] || 0,
+              })).filter(r => r.realized + r.unrealized > 50)
+                .sort((a, b) => (b.realized + b.unrealized) - (a.realized + a.unrealized))
+                .slice(0, 8);
+              return (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: "#666", marginBottom: 10 }}>Gains Reporting</div>
+                  <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", padding: "10px 14px", borderBottom: "1px solid #1e1e1e" }}>
+                      {["Coin", "Realized (proceeds)", "Unrealized"].map(h => <span key={h} style={{ fontSize: 11, fontWeight: 600, color: "#555", textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</span>)}
+                    </div>
+                    {gainCoins.map((row, i, arr) => (
+                      <div key={row.coin} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", padding: "12px 14px", borderBottom: i < arr.length-1 ? "1px solid #1a1a1a" : "none", alignItems: "center" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                          <div style={{ width: 10, height: 10, borderRadius: "50%", background: COIN_COLOR_G[row.coin] || "#888", flexShrink: 0 }} />
+                          <span style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>{row.coin}</span>
+                        </div>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: row.realized > 0 ? "#6fa8ff" : "#444" }}>
+                          {row.realized > 0 ? fmtFull(row.realized) : "—"}
+                        </span>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: row.unrealized > 0 ? "#00e676" : "#444" }}>
+                          {row.unrealized > 0 ? fmtFull(row.unrealized) : "—"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* PIE 1 — Coin diversity */}
             <div style={{ marginBottom: 20 }}>
@@ -3816,45 +3869,77 @@ export default function CryptoApp() {
               })()}
             </div>
 
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 13, fontWeight: 500, color: "#666", marginBottom: 10 }}>Risk Metrics</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                {[
-                  { lbl: "Max Drawdown", val: "-18.4%", sub: "Peak to trough", color: "#ff4444" },
-                  { lbl: "Current Drawdown", val: "-6.2%", sub: "From peak", color: "#ff4444" },
-                  { lbl: "Total Fees", val: "$328", sub: "All exchanges", color: null },
-                  { lbl: "Total Trades", val: `${TRANSACTIONS.length}`, sub: "All portfolios", color: null },
-                ].map(s => (
-                  <div key={s.lbl} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "12px 14px" }}>
-                    <div style={{ fontSize: 12, fontWeight: 400, color: "#777", marginBottom: 6 }}>{s.lbl}</div>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: s.color || "#fff", letterSpacing: "-0.01em" }}>{s.val}</div>
-                    <div style={{ fontSize: 12, color: "#555", marginTop: 3 }}>{s.sub}</div>
+            {(() => {
+              const totalFees = TRANSACTIONS.reduce((s, t) => s + (t.fee || 0), 0);
+              let maxDrawdown = null, currentDrawdown = null;
+              if (snapshots.length >= 2) {
+                let peak = snapshots[0].totalUSD;
+                let maxDraw = 0;
+                for (const s of snapshots) {
+                  if (s.totalUSD > peak) peak = s.totalUSD;
+                  const draw = peak > 0 ? (s.totalUSD - peak) / peak * 100 : 0;
+                  if (draw < maxDraw) maxDraw = draw;
+                }
+                maxDrawdown = maxDraw;
+                const lastVal = snapshots[snapshots.length - 1].totalUSD;
+                currentDrawdown = peak > 0 ? (lastVal - peak) / peak * 100 : 0;
+              }
+              const metrics = [
+                { lbl: "Max Drawdown", val: maxDrawdown !== null ? `${maxDrawdown.toFixed(1)}%` : "—", sub: maxDrawdown !== null ? "Peak to trough" : "Builds from daily data", color: maxDrawdown !== null && maxDrawdown < 0 ? "#ff4444" : "#aaa" },
+                { lbl: "Current Drawdown", val: currentDrawdown !== null ? `${currentDrawdown.toFixed(1)}%` : "—", sub: currentDrawdown !== null ? "From all-time high" : "Builds from daily data", color: currentDrawdown !== null && currentDrawdown < -0.5 ? "#ff4444" : "#00e676" },
+                { lbl: "Total Fees", val: totalFees > 0 ? fmtFull(totalFees) : "$0", sub: "All exchanges", color: null },
+                { lbl: "Total Trades", val: `${TRANSACTIONS.length}`, sub: "All portfolios", color: null },
+              ];
+              return (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: "#666", marginBottom: 10 }}>Risk Metrics</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    {metrics.map(s => (
+                      <div key={s.lbl} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "12px 14px" }}>
+                        <div style={{ fontSize: 12, fontWeight: 400, color: "#777", marginBottom: 6 }}>{s.lbl}</div>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: s.color || "#fff", letterSpacing: "-0.01em" }}>{s.val}</div>
+                        <div style={{ fontSize: 12, color: "#555", marginTop: 3 }}>{s.sub}</div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ marginBottom: 28 }}>
-              <div style={{ fontSize: 13, fontWeight: 500, color: "#666", marginBottom: 10 }}>Exchanges Used</div>
-              <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "12px 10px 10px" }}>
-                <ResponsiveContainer width="100%" height={140}>
-                  <PieChart>
-                    <Pie data={exchangeData} innerRadius={40} outerRadius={62} paddingAngle={3} dataKey="value" strokeWidth={0}>
-                      {exchangeData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                    </Pie>
-                    <Tooltip contentStyle={TOOLTIP_STYLE} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center" }}>
-                  {exchangeData.map(d => (
-                    <div key={d.name} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: d.color }} />
-                      <span style={{ fontSize: 12, fontWeight: 500, color: "#777" }}>{d.name} {d.value}%</span>
-                    </div>
-                  ))}
                 </div>
-              </div>
-            </div>
+              );
+            })()}
+
+            {(() => {
+              const EXCH_COLOR = { Coinbase:"#0052ff", iTrust:"#f7931a", Kraken:"#5741d9", Gemini:"#00dcfa", Binance:"#f0b90b", Transfer:"#888888", DGA:"#22c55e", Uphold:"#56aeff", Other:"#555" };
+              const exchVol = {};
+              TRANSACTIONS.forEach(t => {
+                if ((t.usdTotal || 0) > 0) exchVol[t.exchange] = (exchVol[t.exchange] || 0) + t.usdTotal;
+              });
+              const exchTotal = Object.values(exchVol).reduce((s, v) => s + v, 0);
+              const exchPie = Object.entries(exchVol)
+                .sort(([,a],[,b]) => b - a).slice(0, 6)
+                .map(([name, vol]) => ({ name, value: parseFloat((vol / exchTotal * 100).toFixed(1)), color: EXCH_COLOR[name] || "#666", usd: vol }));
+              return (
+                <div style={{ marginBottom: 28 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: "#666", marginBottom: 10 }}>Exchanges Used</div>
+                  <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "12px 10px 10px" }}>
+                    <ResponsiveContainer width="100%" height={140}>
+                      <PieChart>
+                        <Pie data={exchPie} innerRadius={40} outerRadius={62} paddingAngle={3} dataKey="value" strokeWidth={0}>
+                          {exchPie.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                        </Pie>
+                        <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v, name, props) => [`${v}% · ${fmtFull(props.payload.usd)}`, name]} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center" }}>
+                      {exchPie.map(d => (
+                        <div key={d.name} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                          <div style={{ width: 8, height: 8, borderRadius: "50%", background: d.color }} />
+                          <span style={{ fontSize: 12, fontWeight: 500, color: "#777" }}>{d.name} {d.value}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 
