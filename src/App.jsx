@@ -2275,7 +2275,7 @@ export default function CryptoApp() {
   };
 
   return (
-    <div style={{ fontFamily: RJ, background: "#080808", color: "#ffffff", minHeight: "100vh", maxWidth: 430, margin: "0 auto", position: "relative", overflow: "hidden" }}>
+    <div className="app-shell" style={{ fontFamily: RJ, background: "#080808", color: "#ffffff" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -2357,15 +2357,53 @@ export default function CryptoApp() {
         .options-sheet-row { display: flex; align-items: center; gap: 18px; padding: 18px 24px; cursor: pointer; border: none; background: none; width: 100%; text-align: left; }
         .options-sheet-row:active { background: rgba(255,255,255,0.04); }
         @keyframes slideUp { from { transform: translateX(-50%) translateY(100%); } to { transform: translateX(-50%) translateY(0); } }
-        .sidebar { position: fixed; top: 0; left: 0; width: 285px; height: 100%; background: #0d0d0d; border-right: 1px solid #1e1e1e; z-index: 200; padding: 52px 24px; animation: slideRight 0.22s ease; overflow-y: auto; }
-        @keyframes slideRight { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+
+        /* ── RESPONSIVE SHELL ─────────────────────────────────── */
+        .app-shell { display: flex; min-height: 100vh; }
+
+        /* Sidebar: always in DOM; hidden off-screen on mobile */
+        .sidebar {
+          position: fixed; top: 0; left: 0; width: 260px; height: 100%;
+          background: #0d0d0d; border-right: 1px solid #1e1e1e;
+          z-index: 200; overflow-y: auto;
+          transform: translateX(-100%); transition: transform 0.22s ease;
+          flex-shrink: 0;
+        }
+        .sidebar.sidebar-open { transform: translateX(0); }
+
+        /* Content column: full-width on mobile */
+        .content-col { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 100vh; }
+
+        /* ── TABLET (768px+) ──────────────────────────────────── */
+        @media (min-width: 768px) {
+          .modal { max-width: 560px; }
+          .options-sheet { max-width: 560px; }
+        }
+
+        /* ── DESKTOP (1100px+) ───────────────────────────────── */
+        @media (min-width: 1100px) {
+          .app-shell { overflow: hidden; height: 100vh; }
+          .sidebar {
+            position: relative !important;
+            transform: translateX(0) !important;
+            transition: none !important;
+            height: 100vh;
+            flex-shrink: 0;
+          }
+          .mobile-overlay { display: none !important; }
+          .hamburger-btn { display: none !important; }
+          .bottom-nav-bar { display: none !important; }
+          .content-col { height: 100vh; overflow-y: auto; }
+          .modal { max-width: 560px; }
+          .options-sheet { max-width: 560px; }
+          .page-pad { padding-bottom: 24px !important; }
+          .desktop-2col { display: grid !important; grid-template-columns: 1fr 1fr; gap: 16px; }
+          .desktop-3col { display: grid !important; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+        }
       `}</style>
 
-      {/* SIDEBAR */}
-      {menuOpen && (
-        <>
-          <div className="overlay" onClick={() => setMenuOpen(false)} />
-          <div className="sidebar" style={{ display: "flex", flexDirection: "column", gap: 0, padding: 0, overflowY: "auto" }}>
+      {/* SIDEBAR — always in DOM; CSS hides/shows via transform */}
+      <div className={menuOpen ? "sidebar sidebar-open" : "sidebar"} style={{ display: "flex", flexDirection: "column", gap: 0, padding: 0, overflowY: "auto" }}>
 
             {/* ── HEADER ── */}
             <div style={{ padding: "20px 20px 16px", background: "#0d0d0d", borderBottom: "1px solid #1a1a1a", position: "relative" }}>
@@ -2522,8 +2560,10 @@ export default function CryptoApp() {
             </div>
 
           </div>
-        </>
-      )}
+
+      {menuOpen && <div className="mobile-overlay overlay" onClick={() => setMenuOpen(false)} />}
+
+      <div className="content-col">
 
       {/* ADD TX MODAL */}
       {addTxOpen && (() => {
@@ -3005,7 +3045,7 @@ export default function CryptoApp() {
 
       {/* TOP BAR */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px 10px", position: "sticky", top: 0, background: "#080808", zIndex: 50, borderBottom: "1px solid #141414" }}>
-        <button style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", flexDirection: "column", gap: 5 }} onClick={() => setMenuOpen(true)}>
+        <button className="hamburger-btn" style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", flexDirection: "column", gap: 5 }} onClick={() => setMenuOpen(true)}>
           <div style={{ width: 20, height: 2, background: "#fff" }} />
           <div style={{ width: 14, height: 2, background: "#fff" }} />
           <div style={{ width: 20, height: 2, background: "#fff" }} />
@@ -4450,7 +4490,7 @@ export default function CryptoApp() {
       </div>
 
       {/* FOOTER */}
-      <div style={{
+      <div className="bottom-nav-bar" style={{
         position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
         width: "100%", maxWidth: 430,
         background: "#0a0a0a", borderTop: "1px solid #1a1a1a",
@@ -4529,6 +4569,7 @@ export default function CryptoApp() {
             </button>
           );
         })}
+      </div>
       </div>
     </div>
   );
