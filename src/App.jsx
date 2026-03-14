@@ -2410,8 +2410,8 @@ export default function CryptoApp() {
           }
           .mobile-overlay { display: none !important; }
           .hamburger-btn { display: none !important; }
-          .bottom-nav-bar { display: none !important; }
-          .content-col { height: 100vh; overflow-y: auto; }
+          .bottom-nav-bar { left: 260px !important; }
+          .content-col { height: 100vh; overflow-y: auto; padding-bottom: 80px; }
           .modal { max-width: 560px; }
           .options-sheet { max-width: 560px; }
           .page-pad { padding-bottom: 24px !important; }
@@ -4510,8 +4510,7 @@ export default function CryptoApp() {
 
       {/* FOOTER */}
       <div className="bottom-nav-bar" style={{
-        position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
-        width: "100%", maxWidth: 430,
+        position: "fixed", bottom: 0, left: 0, right: 0,
         background: "#0a0a0a", borderTop: "1px solid #1a1a1a",
         display: "flex", justifyContent: "space-around", alignItems: "center",
         padding: "10px 0 24px", zIndex: 50
