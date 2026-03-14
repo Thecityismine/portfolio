@@ -1826,6 +1826,7 @@ export default function CryptoApp() {
   const [page, setPage] = useState("home");
   const [anthropicKey, setAnthropicKey] = useState(() => localStorage.getItem("anthropic_key") || "");
   const [cmcKey, setCmcKey] = useState(() => localStorage.getItem("cmc_key") || "");
+  const [cmcSyncStatus, setCmcSyncStatus] = useState(""); // "" | "saving" | "saved" | "error"
   const [livePrices, setLivePrices] = useState({});
   const [liveChanges, setLiveChanges] = useState({}); // { BTC: -2.3, ETH: 1.1, ... } percent_change_24h
   const [priceStatus, setPriceStatus] = useState("static"); // "static" | "loading" | "live" | "error"
@@ -4418,29 +4419,38 @@ export default function CryptoApp() {
               <div style={{ fontSize: 10, fontWeight: 700, color: "#00e676", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>CoinMarketCap API Key</div>
               <div style={{ fontSize: 11, color: "#555", marginBottom: 10, lineHeight: 1.5 }}>Used for live price data. Synced across all devices via Firestore — never sent anywhere except directly to CoinMarketCap's API.</div>
               <input
-                type="password"
+                type="text"
                 value={cmcKey}
-                onChange={e => { const k = e.target.value; setCmcKey(k); localStorage.setItem("cmc_key", k); if (firebaseReady) setDoc(doc(db, "settings", "app"), { cmcKey: k }, { merge: true }).catch(err => console.warn("Failed to save CMC key:", err.code)); }}
+                onChange={e => { const k = e.target.value; setCmcKey(k); localStorage.setItem("cmc_key", k); }}
                 placeholder="Enter CoinMarketCap API key..."
                 style={{ width: "100%", background: "#111", border: "1px solid #1a3a2a", borderRadius: 8, color: "#ccc", fontSize: 12, padding: "10px 12px", boxSizing: "border-box", outline: "none", fontFamily: "monospace" }}
               />
               {cmcKey
                 ? <div style={{ fontSize: 11, color: priceStatus === "live" ? "#00e676" : priceStatus === "error" ? "#ff4444" : "#f7931a", marginTop: 6 }}>
-                    {priceStatus === "live" ? `✓ Connected — prices live` : priceStatus === "loading" ? "⟳ Fetching prices..." : priceStatus === "error" ? "✗ API error — check key" : `✓ Key saved — ${cmcKey.slice(0, 12)}...`}
+                    {priceStatus === "live" ? `✓ Live prices active` : priceStatus === "loading" ? "⟳ Fetching prices..." : priceStatus === "error" ? "✗ API error — check key" : `Key entered — save to sync`}
                   </div>
                 : <div style={{ fontSize: 11, color: "#555", marginTop: 6 }}>No key set. Get one at coinmarketcap.com/api</div>}
-              {cmcKey && (
-                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                  <button onClick={() => { if (firebaseReady) setDoc(doc(db, "settings", "app"), { cmcKey }, { merge: true }).then(() => alert("Key synced to all devices ✓")).catch(err => alert("Sync failed: " + err.code)); else alert("Firebase not connected"); }}
-                    style={{ background: "#00e676", border: "none", borderRadius: 7, color: "#000", fontSize: 11, fontWeight: 700, padding: "5px 12px", cursor: "pointer" }}>
-                    Sync to All Devices
+              <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
+                <button
+                  disabled={!cmcKey || cmcSyncStatus === "saving"}
+                  onClick={() => {
+                    if (!firebaseReady) { setCmcSyncStatus("error"); return; }
+                    setCmcSyncStatus("saving");
+                    setDoc(doc(db, "settings", "app"), { cmcKey }, { merge: true })
+                      .then(() => { setCmcSyncStatus("saved"); setTimeout(() => setCmcSyncStatus(""), 3000); })
+                      .catch(err => { console.warn("Sync failed:", err); setCmcSyncStatus("error"); });
+                  }}
+                  style={{ background: cmcSyncStatus === "saved" ? "#00c853" : cmcSyncStatus === "error" ? "#ff4444" : "#00e676", border: "none", borderRadius: 7, color: "#000", fontSize: 11, fontWeight: 700, padding: "6px 14px", cursor: cmcKey ? "pointer" : "not-allowed", opacity: cmcKey ? 1 : 0.4 }}>
+                  {cmcSyncStatus === "saving" ? "Saving..." : cmcSyncStatus === "saved" ? "Saved ✓" : cmcSyncStatus === "error" ? "Error ✗" : "Save & Sync"}
+                </button>
+                {cmcKey && (
+                  <button onClick={() => { setCmcKey(""); localStorage.removeItem("cmc_key"); setCmcSyncStatus(""); if (firebaseReady) setDoc(doc(db, "settings", "app"), { cmcKey: "" }, { merge: true }).catch(console.warn); }}
+                    style={{ background: "none", border: "1px solid #333", borderRadius: 7, color: "#555", fontSize: 11, padding: "6px 14px", cursor: "pointer" }}>
+                    Clear
                   </button>
-                  <button onClick={() => { setCmcKey(""); localStorage.removeItem("cmc_key"); if (firebaseReady) setDoc(doc(db, "settings", "app"), { cmcKey: "" }, { merge: true }).catch(err => console.warn("Failed to clear CMC key:", err.code)); }}
-                    style={{ background: "none", border: "1px solid #333", borderRadius: 7, color: "#555", fontSize: 11, padding: "5px 12px", cursor: "pointer" }}>
-                    Clear Key
-                  </button>
-                </div>
-              )}
+                )}
+                {cmcSyncStatus === "error" && <span style={{ fontSize: 11, color: "#ff4444" }}>{firebaseReady ? "Write failed — check rules" : "Firebase not connected"}</span>}
+              </div>
             </div>
             <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden", marginBottom: 14 }}>
               <div style={{ padding: "12px 16px", borderBottom: "1px solid #161616" }}>
