@@ -4672,6 +4672,57 @@ export default function CryptoApp() {
               })()}
             </div>
 
+            {/* PIE 2 — BTC by Member */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: "#666", marginBottom: 10 }}>BTC Holdings by Member</div>
+              {(() => {
+                const MEMBER_COLORS = ["#f7931a","#00e676","#627eea","#4da6ff","#e6007a","#9945ff","#f4b728","#8dc351","#ff6b6b","#69db7c"];
+                const totalBTC = MEMBERS.reduce((s, m) => s + (m.btc || 0), 0);
+                const pieData = [...MEMBERS]
+                  .filter(m => (m.btc || 0) > 0.000001)
+                  .sort((a, b) => b.btc - a.btc)
+                  .map((m, i) => ({
+                    name: m.name.split(" ")[0],
+                    fullName: m.name,
+                    btc: m.btc,
+                    usd: m.btc * BTC_PRICE,
+                    value: parseFloat((m.btc / totalBTC * 100).toFixed(1)),
+                    color: MEMBER_COLORS[i % MEMBER_COLORS.length],
+                  }));
+                return (
+                  <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 16, padding: "16px", overflow: "hidden" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ fontSize: 11, color: "#555" }}>Total family BTC</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: "#f7931a" }}>{totalBTC.toFixed(5)} BTC · {fmtFull(totalBTC * BTC_PRICE)}</span>
+                    </div>
+                    <ResponsiveContainer width="100%" height={210}>
+                      <PieChart>
+                        <Pie data={pieData} cx="50%" cy="50%" innerRadius={58} outerRadius={90} paddingAngle={2} dataKey="value" strokeWidth={0}>
+                          {pieData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                        </Pie>
+                        <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} itemStyle={TOOLTIP_ITEM_STYLE}
+                          formatter={(v, name, props) => [`${props.payload.btc.toFixed(5)} BTC · ${fmtFull(props.payload.usd)} · ${v}%`, props.payload.fullName]} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 16px" }}>
+                      {pieData.map(d => (
+                        <div key={d.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div style={{ width: 10, height: 10, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
+                            <span style={{ fontSize: 13, fontWeight: 500, color: "#bbb" }}>{d.name}</span>
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>{d.value}%</div>
+                            <div style={{ fontSize: 10, color: "#555" }}>{d.btc.toFixed(4)} BTC</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
             {(() => {
               const totalFees = TRANSACTIONS.reduce((s, t) => s + (t.fee || 0), 0);
               let maxDrawdown = null, currentDrawdown = null;
