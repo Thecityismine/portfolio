@@ -1894,8 +1894,90 @@ async function fsDel(col, id) {
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
 }
 // ─────────────────────────────────────────────────────────────────────────────
+// AUTH
+const APP_PIN = import.meta.env.VITE_APP_PIN || "";
+const SESSION_KEY = "portfolio_session";
+const SESSION_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+function checkSession() {
+  if (!APP_PIN) return true; // no PIN configured → open
+  try {
+    const v = localStorage.getItem(SESSION_KEY);
+    if (!v) return false;
+    const { at } = JSON.parse(v);
+    return Date.now() - at < SESSION_TTL;
+  } catch { return false; }
+}
+
+function PinScreen({ onUnlock }) {
+  const [digits, setDigits] = React.useState([]);
+  const [error, setError] = React.useState(false);
+  const PIN_LEN = APP_PIN.length || 4;
+
+  function press(d) {
+    if (digits.length >= PIN_LEN) return;
+    const next = [...digits, d];
+    setDigits(next);
+    if (next.length === PIN_LEN) {
+      if (next.join("") === APP_PIN) {
+        localStorage.setItem(SESSION_KEY, JSON.stringify({ at: Date.now() }));
+        onUnlock();
+      } else {
+        setError(true);
+        setTimeout(() => { setDigits([]); setError(false); }, 800);
+      }
+    }
+  }
+
+  function del() { setDigits(d => d.slice(0, -1)); }
+
+  const keys = ["1","2","3","4","5","6","7","8","9","","0","⌫"];
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#080808", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'Inter', sans-serif", zIndex: 9999 }}>
+      {/* Logo */}
+      <img src="/icon-192.png" alt="logo" style={{ width: 72, height: 72, borderRadius: 18, marginBottom: 28 }} />
+      <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", marginBottom: 4 }}>Medina Portfolio</div>
+      <div style={{ fontSize: 13, color: "#444", marginBottom: 40 }}>Enter your PIN to continue</div>
+
+      {/* Dots */}
+      <div style={{ display: "flex", gap: 16, marginBottom: 48 }}>
+        {Array.from({ length: PIN_LEN }).map((_, i) => (
+          <div key={i} style={{
+            width: 14, height: 14, borderRadius: "50%",
+            background: digits.length > i ? (error ? "#ff4444" : "#f7931a") : "#222",
+            border: `2px solid ${error ? "#ff4444" : digits.length > i ? "#f7931a" : "#333"}`,
+            transition: "all 0.15s",
+            transform: error ? "scale(1.2)" : "scale(1)",
+          }} />
+        ))}
+      </div>
+
+      {/* Keypad */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 72px)", gap: 14 }}>
+        {keys.map((k, i) => (
+          k === "" ? <div key={i} /> :
+          <button key={i} onClick={() => k === "⌫" ? del() : press(k)}
+            style={{
+              height: 72, borderRadius: 16, border: "none", cursor: "pointer", fontSize: k === "⌫" ? 20 : 26, fontWeight: k === "⌫" ? 400 : 600,
+              background: k === "⌫" ? "transparent" : "#141414",
+              color: k === "⌫" ? "#555" : "#fff",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              transition: "background 0.1s",
+            }}
+            onTouchStart={e => { e.currentTarget.style.background = k === "⌫" ? "#0a0a0a" : "#222"; }}
+            onTouchEnd={e => { e.currentTarget.style.background = k === "⌫" ? "transparent" : "#141414"; }}
+          >{k}</button>
+        ))}
+      </div>
+
+      {error && <div style={{ marginTop: 28, fontSize: 13, color: "#ff4444", fontWeight: 600 }}>Incorrect PIN</div>}
+    </div>
+  );
+}
 
 export default function CryptoApp() {
+  const [authed, setAuthed] = React.useState(() => checkSession());
   const [page, setPage] = useState("home");
   useLayoutEffect(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0; }, [page]);
   const [anthropicKey, setAnthropicKey] = useState(() => localStorage.getItem("anthropic_key") || "");
@@ -2522,6 +2604,8 @@ export default function CryptoApp() {
     );
   };
 
+  if (!authed) return <PinScreen onUnlock={() => setAuthed(true)} />;
+
   return (
     <div className="app-shell" style={{ fontFamily: RJ, background: "#080808", color: "#ffffff" }}>
       <style>{`
@@ -2812,6 +2896,17 @@ export default function CryptoApp() {
                 <span style={{ fontSize: 13, fontWeight: 700, color: "#f7931a" }}>{totalBTC.toFixed(5)} BTC</span>
               </div>
             </div>
+
+            {/* Lock button */}
+            {APP_PIN && (
+              <div style={{ padding: "12px 20px 32px" }}>
+                <button onClick={() => { localStorage.removeItem(SESSION_KEY); setMenuOpen(false); setAuthed(false); }}
+                  style={{ width: "100%", background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: 12, padding: "11px", fontSize: 13, fontWeight: 600, color: "#555", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  Lock App
+                </button>
+              </div>
+            )}
 
           </div>
 
