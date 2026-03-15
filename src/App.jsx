@@ -2766,6 +2766,15 @@ export default function CryptoApp() {
           .options-sheet { max-width: 560px; }
         }
 
+        /* ── MOBILE: bottom nav in flex flow (not fixed) ─────── */
+        @media (max-width: 1099px) {
+          .bottom-nav-bar {
+            position: relative !important;
+            left: auto !important; right: auto !important; bottom: auto !important;
+            flex-shrink: 0;
+          }
+        }
+
         /* ── DESKTOP (1100px+) ───────────────────────────────── */
         @media (min-width: 1100px) {
           .app-shell { overflow: hidden; height: 100vh; }
@@ -3492,7 +3501,7 @@ export default function CryptoApp() {
         );
       })()}
 
-      <div ref={scrollContainerRef} style={{ flex: 1, overflowY: "auto", paddingBottom: 80, minHeight: 0 }}>
+      <div ref={scrollContainerRef} style={{ flex: 1, overflowY: "scroll", WebkitOverflowScrolling: "touch", paddingBottom: 0, minHeight: 0 }}>
 
         {/* HOME */}
         {page === "home" && (
