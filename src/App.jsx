@@ -1539,6 +1539,104 @@ function TaxPage({ fmtFull, TRANSACTIONS, MEMBERS, COIN_PRICES, anthropicKey: gl
     setAiLoading(false);
   }
 
+  function exportTaxCSV() {
+    if (!disposals) return;
+    const rows = [
+      ["Asset","Qty","Date Acquired","Date Sold","Proceeds","Cost Basis","Gain/Loss","Term","Exchange","Flagged"],
+      ...disposals.map(d => [
+        d.coin, d.qty, d.acquiredDate, d.soldDate,
+        d.proceeds.toFixed(2), d.basis.toFixed(2), d.gain.toFixed(2),
+        d.term, d.exchange, d.missingBasis || d.estimated ? "Yes" : "No",
+      ])
+    ];
+    const csv = rows.map(r => r.map(v => `"${v}"`).join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
+    a.download = `tax_${taxYear}_${memberName.replace(/\s+/g,"_")}.csv`;
+    a.click();
+  }
+
+  function exportForm8949() {
+    if (!disposals) return;
+    const header = ["Description of Property","Date Acquired","Date Sold or Disposed","Proceeds (d)","Cost or Other Basis (e)","Adjustment to Gain or Loss (g)","Gain or (Loss) (h)","Code (f)"];
+    const stRows = disposals.filter(d => d.term === "short").map(d => [
+      `${d.qty} ${d.coin}`, d.acquiredDate, d.soldDate,
+      d.proceeds.toFixed(2), d.basis.toFixed(2), "0.00", d.gain.toFixed(2),
+      d.missingBasis ? "B" : "",
+    ]);
+    const ltRows = disposals.filter(d => d.term === "long").map(d => [
+      `${d.qty} ${d.coin}`, d.acquiredDate, d.soldDate,
+      d.proceeds.toFixed(2), d.basis.toFixed(2), "0.00", d.gain.toFixed(2),
+      d.missingBasis ? "B" : "",
+    ]);
+    const lines = [
+      `"Form 8949 — Sales and Other Dispositions of Capital Assets"`,
+      `"Taxpayer: ${memberName} | Tax Year: ${taxYear} | Method: FIFO"`,
+      `""`,
+      `"PART I — Short-Term (Assets Held 1 Year or Less)"`,
+      [header].concat(stRows).map(r => r.map(v=>`"${v}"`).join(",")).join("\n"),
+      `""`,
+      `"PART II — Long-Term (Assets Held More Than 1 Year)"`,
+      [header].concat(ltRows).map(r => r.map(v=>`"${v}"`).join(",")).join("\n"),
+    ];
+    const a = document.createElement("a");
+    a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(lines.join("\n"));
+    a.download = `form_8949_${taxYear}_${memberName.replace(/\s+/g,"_")}.csv`;
+    a.click();
+  }
+
+  function exportTaxPDF() {
+    if (!disposals) return;
+    const fmt2 = n => n < 0 ? `-$${Math.abs(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}` : `$${n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+    const tableRows = disposals.map(d => `
+      <tr style="border-bottom:1px solid #eee;">
+        <td style="padding:5px 8px;font-weight:600;">${d.coin}</td>
+        <td style="padding:5px 8px;color:#666;font-size:11px;">${d.qty}</td>
+        <td style="padding:5px 8px;color:#666;font-size:11px;">${d.acquiredDate}</td>
+        <td style="padding:5px 8px;color:#666;font-size:11px;">${d.soldDate}</td>
+        <td style="padding:5px 8px;text-align:right;">${fmt2(d.proceeds)}</td>
+        <td style="padding:5px 8px;text-align:right;">${fmt2(d.basis)}</td>
+        <td style="padding:5px 8px;text-align:right;font-weight:700;color:${d.gain>=0?"#1a7a40":"#cc0000"};">${fmt2(d.gain)}</td>
+        <td style="padding:5px 8px;text-align:center;font-size:11px;color:${d.term==="long"?"#1a7a40":"#cc6600"};">${d.term==="long"?"LONG":"SHORT"}</td>
+      </tr>`).join("");
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+      <title>Tax Report ${taxYear} — ${memberName}</title>
+      <style>
+        body{font-family:-apple-system,Arial,sans-serif;margin:32px;color:#111;font-size:13px;}
+        h1{font-size:20px;margin:0 0 4px;} h2{font-size:14px;color:#555;margin:0 0 24px;font-weight:400;}
+        .summary{display:flex;gap:24px;margin-bottom:28px;padding:16px 20px;background:#f7f7f7;border-radius:8px;border:1px solid #ddd;}
+        .summary div{text-align:center;} .summary .lbl{font-size:11px;color:#888;margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em;}
+        .summary .val{font-size:18px;font-weight:700;}
+        table{width:100%;border-collapse:collapse;font-size:12px;}
+        thead tr{background:#f0f0f0;} th{padding:7px 8px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#555;}
+        th:nth-child(n+5){text-align:right;} th:last-child{text-align:center;}
+        tr:nth-child(even){background:#fafafa;}
+        .footer{margin-top:28px;font-size:10px;color:#aaa;border-top:1px solid #eee;padding-top:12px;}
+        @media print{body{margin:16px;}}
+      </style></head><body>
+      <h1>Tax Report · ${taxYear}</h1>
+      <h2>${memberName} &nbsp;·&nbsp; FIFO Method &nbsp;·&nbsp; United States</h2>
+      <div class="summary">
+        <div><div class="lbl">Net Capital Gain</div><div class="val" style="color:${totalGain>=0?"#1a7a40":"#cc0000"};">${fmt2(totalGain)}</div></div>
+        <div><div class="lbl">Short-Term</div><div class="val" style="color:${stGain>=0?"#cc6600":"#cc0000"};">${fmt2(stGain)}</div></div>
+        <div><div class="lbl">Long-Term</div><div class="val" style="color:${ltGain>=0?"#1a7a40":"#cc0000"};">${fmt2(ltGain)}</div></div>
+        <div><div class="lbl">Total Proceeds</div><div class="val">${fmt2(stProc+ltProc)}</div></div>
+        <div><div class="lbl">Cost Basis</div><div class="val">${fmt2(stBasis+ltBasis)}</div></div>
+        <div><div class="lbl">Events</div><div class="val">${disposals.length}</div></div>
+      </div>
+      <table>
+        <thead><tr><th>Asset</th><th>Qty</th><th>Acquired</th><th>Sold</th><th>Proceeds</th><th>Cost Basis</th><th>Gain/Loss</th><th>Term</th></tr></thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+      <div class="footer">Generated ${new Date().toLocaleDateString()} · For planning only — not legal or tax advice · Consult a qualified tax professional</div>
+      </body></html>`;
+    const win = window.open("", "_blank");
+    if (!win) return;
+    win.document.write(html);
+    win.document.close();
+    setTimeout(() => win.print(), 500);
+  }
+
   const tabBtn = (id, lbl) => (
     <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:"8px 4px",fontSize:12,fontWeight:600,borderRadius:9,background:tab===id?"#00e676":"#111",color:tab===id?"#000":"#555",border:tab===id?"none":"1px solid #1e1e1e",cursor:"pointer"}}>{lbl}</button>
   );
@@ -1599,6 +1697,20 @@ function TaxPage({ fmtFull, TRANSACTIONS, MEMBERS, COIN_PRICES, anthropicKey: gl
                 <div><div style={{fontSize:10,color:"#555",marginBottom:2}}>Events</div><div style={{fontSize:13,fontWeight:600,color:"#aaa"}}>{disposals.length}</div></div>
                 <div><div style={{fontSize:10,color:"#555",marginBottom:2}}>Member</div><div style={{fontSize:13,fontWeight:600,color:"#aaa"}}>{memberName}</div></div>
               </div>
+            </div>
+
+            {/* Export buttons */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:12}}>
+              {[
+                { label: "Form 8949", sub: "IRS format", fn: exportForm8949 },
+                { label: "CSV Export", sub: "Full ledger",  fn: exportTaxCSV },
+                { label: "PDF Report", sub: "Print-ready", fn: exportTaxPDF },
+              ].map(b => (
+                <button key={b.label} onClick={b.fn} style={{background:"#111",border:"1px solid #1e1e1e",borderRadius:10,padding:"9px 6px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                  <span style={{fontSize:12,fontWeight:700,color:"#fff"}}>{b.label}</span>
+                  <span style={{fontSize:10,color:"#555"}}>{b.sub}</span>
+                </button>
+              ))}
             </div>
 
             {/* Tab nav */}
