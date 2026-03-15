@@ -3570,10 +3570,14 @@ export default function CryptoApp() {
                 {
                   label: "Concentration Risk",
                   value: `${highestConcPct}%`,
-                  sub: `⚠ ${highestConc.name} holds majority`,
-                  accent: parseFloat(highestConcPct) > 70 ? "#ff4444" : parseFloat(highestConcPct) > 50 ? "#f7931a" : "#00e676",
+                  sub: `${highestConc.name} holds majority`,
+                  ...(pct => {
+                    if (pct > 75) return { accent: "#ff4444", warning: "Critical", cardBg: "#ff444408" };
+                    if (pct > 60) return { accent: "#f7931a", warning: "High",     cardBg: "#f7931a08" };
+                    if (pct > 40) return { accent: "#f7c948", warning: "Moderate", cardBg: "#f7c94808" };
+                    return                { accent: "#00e676", warning: "Low",      cardBg: "#00e67608" };
+                  })(parseFloat(highestConcPct)),
                   icon: "⚠",
-                  warning: parseFloat(highestConcPct) > 70 ? "High risk" : parseFloat(highestConcPct) > 50 ? "Moderate" : "Healthy",
                 },
                 {
                   label: "Alt Exposure",
@@ -3596,7 +3600,7 @@ export default function CryptoApp() {
                   <div style={{ fontSize: 11, fontWeight: 600, color: "#555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>Portfolio Intelligence</div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                     {stats.map(s => (
-                      <div key={s.label} style={{ background: "#111", border: `1px solid ${s.warning ? s.accent + "44" : "#1e1e1e"}`, borderRadius: 12, padding: "12px 14px", position: "relative", overflow: "hidden" }}>
+                      <div key={s.label} style={{ background: s.cardBg || "#111", border: `1px solid ${s.warning ? s.accent + "55" : "#1e1e1e"}`, borderRadius: 12, padding: "12px 14px", position: "relative", overflow: "hidden" }}>
                         <div style={{ position: "absolute", top: 10, right: 12, fontSize: 16, opacity: 0.15 }}>{s.icon}</div>
                         <div style={{ fontSize: 11, fontWeight: 500, color: "#666", marginBottom: 5, letterSpacing: "0.02em" }}>{s.label}</div>
                         <div style={{ fontSize: 18, fontWeight: 700, color: s.accent, letterSpacing: "-0.01em", marginBottom: 3, lineHeight: 1.1 }}>{s.value}</div>
