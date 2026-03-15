@@ -1896,7 +1896,7 @@ async function fsDel(col, id) {
 // ─────────────────────────────────────────────────────────────────────────────
 // FIREBASE AUTH (Google Sign-In)
 import { initializeApp, getApps } from "firebase/app";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
 
 const _FB_CONFIG = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -1906,36 +1906,46 @@ const _FB_CONFIG = {
 const _fbApp = getApps().length ? getApps()[0] : initializeApp(_FB_CONFIG);
 const _fbAuth = getAuth(_fbApp);
 
-function LoginScreen({ onSignedIn }) {
+function LoginScreen() {
+  const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState("");
 
-  async function handleGoogle() {
+  async function handleLogin(e) {
+    e.preventDefault();
     setLoading(true);
     setError("");
     try {
-      await signInWithPopup(_fbAuth, new GoogleAuthProvider());
-      // onAuthStateChanged in CryptoApp will call onSignedIn
-    } catch (e) {
-      setError(e.message || "Sign-in failed");
+      await signInWithEmailAndPassword(_fbAuth, email, password);
+    } catch (err) {
+      const msg = err.code === "auth/invalid-credential" || err.code === "auth/wrong-password" || err.code === "auth/user-not-found"
+        ? "Incorrect email or password."
+        : err.code === "auth/too-many-requests"
+        ? "Too many attempts. Try again later."
+        : "Sign-in failed. Check your credentials.";
+      setError(msg);
       setLoading(false);
     }
   }
 
+  const inputStyle = { width: "100%", background: "#111", border: "1px solid #222", borderRadius: 12, color: "#fff", fontSize: 15, padding: "14px 16px", outline: "none", boxSizing: "border-box", fontFamily: "'Inter', sans-serif" };
+
   return (
-    <div style={{ position: "fixed", inset: 0, background: "#080808", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'Inter', sans-serif", zIndex: 9999, padding: 24 }}>
-      <img src="/icon-192.png" alt="logo" style={{ width: 80, height: 80, borderRadius: 20, marginBottom: 28 }} />
+    <div style={{ position: "fixed", inset: 0, background: "#080808", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'Inter', sans-serif", zIndex: 9999, padding: 32 }}>
+      <img src="/icon-192.png" alt="logo" style={{ width: 80, height: 80, borderRadius: 20, marginBottom: 24 }} />
       <div style={{ fontSize: 24, fontWeight: 800, color: "#fff", marginBottom: 6 }}>Medina Portfolio</div>
-      <div style={{ fontSize: 14, color: "#555", marginBottom: 52 }}>Sign in to access your portfolio</div>
+      <div style={{ fontSize: 14, color: "#444", marginBottom: 40 }}>Sign in to continue</div>
 
-      <button onClick={handleGoogle} disabled={loading}
-        style={{ display: "flex", alignItems: "center", gap: 12, background: "#fff", border: "none", borderRadius: 14, padding: "14px 28px", fontSize: 15, fontWeight: 600, color: "#111", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1, boxShadow: "0 4px 24px rgba(0,0,0,0.4)", minWidth: 220, justifyContent: "center" }}>
-        {/* Google "G" logo */}
-        <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.35-8.16 2.35-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/><path fill="none" d="M0 0h48v48H0z"/></svg>
-        {loading ? "Signing in…" : "Continue with Google"}
-      </button>
-
-      {error && <div style={{ marginTop: 24, fontSize: 12, color: "#ff6b6b", textAlign: "center", maxWidth: 280 }}>{error}</div>}
+      <form onSubmit={handleLogin} style={{ width: "100%", maxWidth: 340, display: "flex", flexDirection: "column", gap: 12 }}>
+        <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" style={inputStyle} />
+        <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required autoComplete="current-password" style={inputStyle} />
+        {error && <div style={{ fontSize: 12, color: "#ff6b6b", textAlign: "center", padding: "4px 0" }}>{error}</div>}
+        <button type="submit" disabled={loading || !email || !password}
+          style={{ marginTop: 4, width: "100%", background: loading ? "#111" : "#f7931a", border: "none", borderRadius: 12, padding: "15px", fontSize: 15, fontWeight: 700, color: loading ? "#444" : "#000", cursor: loading ? "not-allowed" : "pointer" }}>
+          {loading ? "Signing in…" : "Sign In"}
+        </button>
+      </form>
     </div>
   );
 }
@@ -2580,7 +2590,7 @@ export default function CryptoApp() {
       <img src="/icon-192.png" alt="logo" style={{ width: 64, height: 64, borderRadius: 16, opacity: 0.6 }} />
     </div>
   );
-  if (!authUser) return <LoginScreen onSignedIn={() => {}} />;
+  if (!authUser) return <LoginScreen />;
 
   return (
     <div className="app-shell" style={{ fontFamily: RJ, background: "#080808", color: "#ffffff" }}>
