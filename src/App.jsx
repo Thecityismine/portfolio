@@ -4380,6 +4380,35 @@ export default function CryptoApp() {
                   ))}
                 </div>
 
+                {/* Holding period stats */}
+                {(() => {
+                  const buyTxs = coinTxs.filter(t => t.type === "buy" && t.date);
+                  if (!buyTxs.length) return null;
+                  const now = new Date();
+                  const oldest = buyTxs.reduce((a, b) => new Date(a.date) < new Date(b.date) ? a : b);
+                  const oldestStr = new Date(oldest.date).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+                  const totalQty = buyTxs.reduce((s, t) => s + t.qty, 0);
+                  const avgDays = totalQty > 0
+                    ? buyTxs.reduce((s, t) => s + t.qty * ((now - new Date(t.date)) / 86400000), 0) / totalQty
+                    : 0;
+                  const holdStr = avgDays >= 365
+                    ? `${(avgDays / 365.25).toFixed(1)} years`
+                    : `${Math.round(avgDays / 30)} months`;
+                  return (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
+                      {[
+                        { lbl: "Avg Hold Time", val: holdStr },
+                        { lbl: "Oldest Purchase", val: oldestStr },
+                      ].map(s => (
+                        <div key={s.lbl} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "10px 12px" }}>
+                          <div style={{ fontSize: 11, color: "#777", marginBottom: 4 }}>{s.lbl}</div>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>{s.val}</div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+
                 {/* Transactions link */}
                 <button
                   style={{ width: "100%", background: "#111", border: "1px solid #1e1e1e", borderRadius: 12, padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", marginBottom: 24 }}
