@@ -2823,6 +2823,10 @@ export default function CryptoApp() {
       {addTxOpen && (() => {
         const qty = parseFloat(txForm.qty) || 0;
         const price = parseFloat(txForm.price) || 0;
+        const memberCoinHoldings = txForm.member && txForm.coin
+          ? TRANSACTIONS.filter(t => t.member === txForm.member && t.coin === txForm.coin)
+              .reduce((s, t) => t.type === "sell" ? s - t.qty : s + t.qty, 0)
+          : 0;
         const totalCost = qty * price;
         const currentPrice = COIN_PRICES[txForm.coin] || 0;
         const currentVal = qty * currentPrice;
@@ -2931,7 +2935,7 @@ export default function CryptoApp() {
                         style={{ flex: 1, padding: "9px", borderRadius: 10, border: "none", fontWeight: 700, fontSize: 13, cursor: "pointer",
                           background: txForm.type === t ? (t === "buy" ? "#00e676" : "#ff4444") : "#1a1a1a",
                           color: txForm.type === t ? "#000" : "#555" }}>
-                        {t === "buy" ? "⬆ Buy" : "⬇ Sell"}
+                        {t === "buy" ? "Buy" : "Sell"}
                       </button>
                     ))}
                   </div>
@@ -2958,7 +2962,15 @@ export default function CryptoApp() {
                 {/* Qty + Price */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div>
-                    <div className="lbl" style={{ marginBottom: 6 }}>Quantity</div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                      <div className="lbl">Quantity</div>
+                      {memberCoinHoldings > 0 && (
+                        <button onClick={() => { setTxField("qty", String(+memberCoinHoldings.toFixed(8))); setTxField("type", "sell"); setTxField("price", String(COIN_PRICES[txForm.coin] || "")); }}
+                          style={{ background: "#ff444422", border: "1px solid #ff444444", borderRadius: 6, padding: "2px 8px", fontSize: 10, fontWeight: 700, color: "#ff6b6b", cursor: "pointer" }}>
+                          Sell All
+                        </button>
+                      )}
+                    </div>
                     <input type="number" min="0" step="any" placeholder="0.00000000"
                       value={txForm.qty} onChange={e => setTxField("qty", e.target.value)} />
                   </div>
@@ -2999,7 +3011,7 @@ export default function CryptoApp() {
                   style={{ width: "100%", padding: "13px", borderRadius: 10, border: "none", fontWeight: 700, fontSize: 14,
                     cursor: txSubmitting ? "not-allowed" : "pointer", opacity: txSubmitting ? 0.6 : 1,
                     background: txForm.type === "buy" ? "#00e676" : "#ff4444", color: "#000" }}>
-                  {txSubmitting ? "Saving..." : txForm.type === "buy" ? "⬆ Add Buy" : "⬇ Add Sell"}
+                  {txSubmitting ? "Saving..." : txForm.type === "buy" ? "Add Buy" : "Add Sell"}
                 </button>
               </div>
               )}
@@ -3219,7 +3231,7 @@ export default function CryptoApp() {
                         style={{ flex: 1, padding: "9px", borderRadius: 10, border: "none", fontWeight: 700, fontSize: 13, cursor: "pointer",
                           background: editForm.type === t ? (t === "buy" ? "#00e676" : "#ff4444") : "#1a1a1a",
                           color: editForm.type === t ? "#000" : "#555" }}>
-                        {t === "buy" ? "⬆ Buy" : "⬇ Sell"}
+                        {t === "buy" ? "Buy" : "Sell"}
                       </button>
                     ))}
                   </div>
@@ -4266,21 +4278,12 @@ export default function CryptoApp() {
                     <div style={{ fontSize: 18, fontWeight: 700, color: "#fff" }}>{coin}</div>
                     <div style={{ fontSize: 12, color: "#777" }}>{coinTxs.length} transactions</div>
                   </div>
-                  <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                    <button
-                      style={{ background: "#ff444422", border: "1px solid #ff444444", borderRadius: 10, padding: "8px 14px", fontSize: 13, fontWeight: 700, color: "#ff6b6b", cursor: "pointer" }}
-                      onClick={() => {
-                        const totalQty = coinTxs.reduce((s, t) => t.type === "sell" ? s - t.qty : s + t.qty, 0);
-                        setTxForm(f => ({ ...f, member: member.id, coin, type: "sell", qty: totalQty > 0 ? String(+totalQty.toFixed(8)) : "", price: String(COIN_PRICES[coin] || "") }));
-                        setAddTxOpen(true);
-                      }}>Sell All</button>
-                    <button
-                      style={{ background: "#00e676", border: "none", borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, color: "#000", cursor: "pointer" }}
-                      onClick={() => {
-                        setTxForm(f => ({ ...f, member: member.id, coin }));
-                        setAddTxOpen(true);
-                      }}>+ Add</button>
-                  </div>
+                  <button
+                    style={{ marginLeft: "auto", background: "#00e676", border: "none", borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, color: "#000", cursor: "pointer" }}
+                    onClick={() => {
+                      setTxForm(f => ({ ...f, member: member.id, coin }));
+                      setAddTxOpen(true);
+                    }}>+ Add</button>
                 </div>
 
                 {/* Expanded transaction detail cards */}
