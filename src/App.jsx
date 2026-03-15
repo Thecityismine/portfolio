@@ -1519,7 +1519,7 @@ function TaxPage({ fmtFull, TRANSACTIONS, MEMBERS, COIN_PRICES, anthropicKey: gl
     try {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+        headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
           max_tokens: 1000,
@@ -2471,7 +2471,7 @@ export default function CryptoApp() {
     try {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": anthropicKey, "anthropic-version": "2023-06-01" },
+        headers: { "Content-Type": "application/json", "x-api-key": anthropicKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514", max_tokens: 1200,
           system: "You are a wealth management and estate planning assistant. Generate professional, clear estate planning summaries for families holding cryptocurrency. Be specific about numbers. Note this is for planning purposes only and they should consult an estate attorney.",
@@ -2548,7 +2548,7 @@ export default function CryptoApp() {
     try {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": anthropicKey, "anthropic-version": "2023-06-01" },
+        headers: { "Content-Type": "application/json", "x-api-key": anthropicKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514", max_tokens: 900,
           system: "You are a personal Bitcoin-focused portfolio advisor for a family cryptocurrency portfolio tracker. Generate concise, actionable intelligence reports. Be specific with dollar amounts and percentages from the data. Favor Bitcoin maximalism — more BTC allocation is generally better. Use plain text only with section label headers (all caps, on their own line). No markdown, no asterisks, no bullet dashes. Keep total response under 350 words.",
