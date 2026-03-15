@@ -5056,12 +5056,19 @@ export default function CryptoApp() {
                     </div>
                     <div style={{ fontSize: 10, color: "#556", marginBottom: 8 }}>Estate holdings</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {[...["BTC","ETH"].filter(c => jorgeHoldings[c] > 0.00001), ...(altCoins.length > 0 ? ["_alt"] : [])].map(c => {
+                      {[...["BTC","ETH"].filter(c => jorgeHoldings[c] > 0.00001), ...(altCoins.length > 0 ? ["_alt"] : []), ...(itrustUSD > 0 ? ["_itrust"] : [])].map(c => {
                         if (c === "_alt") return (
                           <div key="_alt" style={{ background: "#ffffff08", borderRadius: 8, padding: "6px 10px", minWidth: 80 }}>
                             <div style={{ fontSize: 10, color: "#556" }}>Altcoins ({altCoins.length})</div>
                             <div style={{ fontSize: 12, fontWeight: 700, color: "#fff" }}>—</div>
                             <div style={{ fontSize: 10, color: "#888" }}>{fmtFull(allAltsUSD)}</div>
+                          </div>
+                        );
+                        if (c === "_itrust") return (
+                          <div key="_itrust" style={{ background: "#ffffff08", borderRadius: 8, padding: "6px 10px", minWidth: 80 }}>
+                            <div style={{ fontSize: 10, color: "#556" }}>iTrust (IRA)</div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: "#f7931a" }}>Roth IRA</div>
+                            <div style={{ fontSize: 10, color: "#888" }}>{fmtFull(itrustUSD)}</div>
                           </div>
                         );
                         return (
