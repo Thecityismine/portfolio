@@ -2901,27 +2901,37 @@ export default function CryptoApp() {
     setImportOpen(false);
   }
 
-  // Computed chart data from real snapshots (falls back to synthetic when < 2 real points)
-  // Always force the last point to the current live totalUSD so the chart endpoint matches the header value
-  const familyChartData = (() => {
-    const data = snapshotsToChart(snapshots, homeChartRange, s => s.totalUSD) ||
-      generateChartData(totalUSD || 341000, homeChartRange);
-    if (data && data.length > 0 && totalUSD > 0) {
-      data[data.length - 1] = { ...data[data.length - 1], v: Math.round(totalUSD * 100) / 100 };
-    }
+  // Home page chart — stable shape (not re-randomized on every price tick)
+  const familyChartBase = useMemo(() => {
+    const snapshotData = snapshotsToChart(snapshots, homeChartRange, s => s.totalUSD);
+    const minSnapshots = { "1M": 7, "3M": 14, "ALL": 30 }[homeChartRange] ?? 7;
+    return (snapshotData && snapshotData.length >= minSnapshots)
+      ? snapshotData
+      : generateChartData(totalUSD || 341000, homeChartRange);
+  }, [homeChartRange, snapshots]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Pin last point to live totalUSD (cheap array spread, does not regenerate shape)
+  const familyChartData = useMemo(() => {
+    if (!familyChartBase?.length) return familyChartBase || [];
+    const data = [...familyChartBase];
+    if (totalUSD > 0) data[data.length - 1] = { ...data[data.length - 1], v: Math.round(totalUSD * 100) / 100 };
     return data;
-  })();
+  }, [familyChartBase, totalUSD]);
+
+  // Insights page Balance History chart — always "ALL" range, stable shape
+  const insightsChartBase = useMemo(() => {
+    const snapshotData = snapshotsToChart(snapshots, "ALL", s => s.totalUSD);
+    return (snapshotData && snapshotData.length >= 30)
+      ? snapshotData
+      : generateChartData(totalUSD || 341000, "ALL");
+  }, [snapshots]); // eslint-disable-line react-hooks/exhaustive-deps
+  const insightsChartData = useMemo(() => {
+    if (!insightsChartBase?.length) return insightsChartBase || [];
+    const data = [...insightsChartBase];
+    if (totalUSD > 0) data[data.length - 1] = { ...data[data.length - 1], v: Math.round(totalUSD * 100) / 100 };
+    return data;
+  }, [insightsChartBase, totalUSD]);
 
   const member = selectedMember ? MEMBERS.find(m => m.id === selectedMember) : null;
-  const memberChart = (() => {
-    if (!member) return [];
-    const data = snapshotsToChart(snapshots, memberChartRange, s => s.members?.[member.id] ?? 0) ||
-      generateChartData(member.usd);
-    if (data && data.length > 0 && member.usd > 0) {
-      data[data.length - 1] = { ...data[data.length - 1], v: Math.round(member.usd * 100) / 100 };
-    }
-    return data;
-  })();
   const memberTxs = TRANSACTIONS.filter(t => t.member === member?.id);
 
   // Stable chart data for member portfolio page — avoids re-randomizing on every render
@@ -5589,7 +5599,7 @@ export default function CryptoApp() {
               <div style={{ fontSize: 13, fontWeight: 500, color: "#666", marginBottom: 10 }}>Balance History</div>
               <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "12px 8px 8px" }}>
                 <ResponsiveContainer width="100%" height={130}>
-                  <AreaChart data={(() => { const d = snapshotsToChart(snapshots, "ALL", s => s.totalUSD) || generateChartData(totalUSD, "ALL"); if (d?.length && totalUSD > 0) d[d.length - 1] = { ...d[d.length - 1], v: Math.round(totalUSD * 100) / 100 }; return d; })()}>
+                  <AreaChart data={insightsChartData}>
                     <defs>
                       <linearGradient id="iGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="#f7931a" stopOpacity={0.3} />
