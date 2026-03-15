@@ -2654,7 +2654,8 @@ export default function CryptoApp() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        html, body { background: #080808; width: 100%; height: 100%; overflow: hidden; }
+        html { background: #0a0a0a; width: 100%; height: 100%; }
+        body { background: #080808; width: 100%; height: 100%; overscroll-behavior: none; }
         #root { background: #080808; width: 100%; height: 100%; }
         ::-webkit-scrollbar { width: 2px; }
         ::-webkit-scrollbar-track { background: #0a0a0a; }
@@ -2738,12 +2739,10 @@ export default function CryptoApp() {
         /* ── RESPONSIVE SHELL ─────────────────────────────────── */
         .app-shell {
           display: flex;
-          width: 100vw;
-          height: 100dvh;
-          height: 100vh;
-          height: -webkit-fill-available;
-          max-height: -webkit-fill-available;
+          width: 100%;
+          height: 100%;
           background: #080808;
+          overscroll-behavior: none;
         }
 
         /* Sidebar: always in DOM; hidden off-screen on mobile */
