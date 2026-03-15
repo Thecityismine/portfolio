@@ -2654,9 +2654,8 @@ export default function CryptoApp() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        html { background: #0a0a0a; width: 100%; height: 100%; }
-        body { background: #0a0a0a; width: 100%; height: 100%; overscroll-behavior: none; }
-        #root { background: #080808; width: 100%; height: 100%; }
+        html, body, #root { width: 100%; height: 100%; background: #080808; }
+        body { overscroll-behavior: none; }
         ::-webkit-scrollbar { width: 2px; }
         ::-webkit-scrollbar-track { background: #0a0a0a; }
         ::-webkit-scrollbar-thumb { background: #222; }
@@ -3440,7 +3439,7 @@ export default function CryptoApp() {
       })()}
 
       {/* TOP BAR */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "calc(14px + env(safe-area-inset-top))", paddingBottom: 10, paddingLeft: 18, paddingRight: 18, position: "sticky", top: 0, background: "#080808", zIndex: 50, borderBottom: "1px solid #141414" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 14, paddingBottom: 10, paddingLeft: 18, paddingRight: 18, position: "sticky", top: 0, background: "#080808", zIndex: 50, borderBottom: "1px solid #141414" }}>
         <button className="hamburger-btn" style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", flexDirection: "column", gap: 5 }} onClick={() => setMenuOpen(true)}>
           <div style={{ width: 20, height: 2, background: "#fff" }} />
           <div style={{ width: 14, height: 2, background: "#fff" }} />
@@ -5594,7 +5593,7 @@ ${inheritanceAiSummary?`<h2>AI Executive Summary</h2><div class="ai">${inheritan
         position: "fixed", bottom: 0, left: 0, right: 0,
         background: "#0a0a0a", borderTop: "1px solid #1a1a1a",
         display: "flex", justifyContent: "space-around", alignItems: "center",
-        paddingTop: 10, paddingBottom: "calc(10px + env(safe-area-inset-bottom))", zIndex: 50
+        paddingTop: 10, paddingBottom: 10, zIndex: 50
       }}>
         {[
           {
