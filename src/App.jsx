@@ -1894,90 +1894,54 @@ async function fsDel(col, id) {
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
 }
 // ─────────────────────────────────────────────────────────────────────────────
-// AUTH
-const APP_PIN = import.meta.env.VITE_APP_PIN || "";
-const SESSION_KEY = "portfolio_session";
-const SESSION_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days
+// FIREBASE AUTH (Google Sign-In)
+import { initializeApp, getApps } from "firebase/app";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
 
-function checkSession() {
-  if (!APP_PIN) return true; // no PIN configured → open
-  try {
-    const v = localStorage.getItem(SESSION_KEY);
-    if (!v) return false;
-    const { at } = JSON.parse(v);
-    return Date.now() - at < SESSION_TTL;
-  } catch { return false; }
-}
+const _FB_CONFIG = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+};
+const _fbApp = getApps().length ? getApps()[0] : initializeApp(_FB_CONFIG);
+const _fbAuth = getAuth(_fbApp);
 
-function PinScreen({ onUnlock }) {
-  const [digits, setDigits] = React.useState([]);
-  const [error, setError] = React.useState(false);
-  const PIN_LEN = APP_PIN.length || 4;
+function LoginScreen({ onSignedIn }) {
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState("");
 
-  function press(d) {
-    if (digits.length >= PIN_LEN) return;
-    const next = [...digits, d];
-    setDigits(next);
-    if (next.length === PIN_LEN) {
-      if (next.join("") === APP_PIN) {
-        localStorage.setItem(SESSION_KEY, JSON.stringify({ at: Date.now() }));
-        onUnlock();
-      } else {
-        setError(true);
-        setTimeout(() => { setDigits([]); setError(false); }, 800);
-      }
+  async function handleGoogle() {
+    setLoading(true);
+    setError("");
+    try {
+      await signInWithPopup(_fbAuth, new GoogleAuthProvider());
+      // onAuthStateChanged in CryptoApp will call onSignedIn
+    } catch (e) {
+      setError(e.message || "Sign-in failed");
+      setLoading(false);
     }
   }
 
-  function del() { setDigits(d => d.slice(0, -1)); }
-
-  const keys = ["1","2","3","4","5","6","7","8","9","","0","⌫"];
-
   return (
-    <div style={{ position: "fixed", inset: 0, background: "#080808", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'Inter', sans-serif", zIndex: 9999 }}>
-      {/* Logo */}
-      <img src="/icon-192.png" alt="logo" style={{ width: 72, height: 72, borderRadius: 18, marginBottom: 28 }} />
-      <div style={{ fontSize: 22, fontWeight: 800, color: "#fff", marginBottom: 4 }}>Medina Portfolio</div>
-      <div style={{ fontSize: 13, color: "#444", marginBottom: 40 }}>Enter your PIN to continue</div>
+    <div style={{ position: "fixed", inset: 0, background: "#080808", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontFamily: "'Inter', sans-serif", zIndex: 9999, padding: 24 }}>
+      <img src="/icon-192.png" alt="logo" style={{ width: 80, height: 80, borderRadius: 20, marginBottom: 28 }} />
+      <div style={{ fontSize: 24, fontWeight: 800, color: "#fff", marginBottom: 6 }}>Medina Portfolio</div>
+      <div style={{ fontSize: 14, color: "#555", marginBottom: 52 }}>Sign in to access your portfolio</div>
 
-      {/* Dots */}
-      <div style={{ display: "flex", gap: 16, marginBottom: 48 }}>
-        {Array.from({ length: PIN_LEN }).map((_, i) => (
-          <div key={i} style={{
-            width: 14, height: 14, borderRadius: "50%",
-            background: digits.length > i ? (error ? "#ff4444" : "#f7931a") : "#222",
-            border: `2px solid ${error ? "#ff4444" : digits.length > i ? "#f7931a" : "#333"}`,
-            transition: "all 0.15s",
-            transform: error ? "scale(1.2)" : "scale(1)",
-          }} />
-        ))}
-      </div>
+      <button onClick={handleGoogle} disabled={loading}
+        style={{ display: "flex", alignItems: "center", gap: 12, background: "#fff", border: "none", borderRadius: 14, padding: "14px 28px", fontSize: 15, fontWeight: 600, color: "#111", cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.7 : 1, boxShadow: "0 4px 24px rgba(0,0,0,0.4)", minWidth: 220, justifyContent: "center" }}>
+        {/* Google "G" logo */}
+        <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.35-8.16 2.35-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/><path fill="none" d="M0 0h48v48H0z"/></svg>
+        {loading ? "Signing in…" : "Continue with Google"}
+      </button>
 
-      {/* Keypad */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 72px)", gap: 14 }}>
-        {keys.map((k, i) => (
-          k === "" ? <div key={i} /> :
-          <button key={i} onClick={() => k === "⌫" ? del() : press(k)}
-            style={{
-              height: 72, borderRadius: 16, border: "none", cursor: "pointer", fontSize: k === "⌫" ? 20 : 26, fontWeight: k === "⌫" ? 400 : 600,
-              background: k === "⌫" ? "transparent" : "#141414",
-              color: k === "⌫" ? "#555" : "#fff",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              transition: "background 0.1s",
-            }}
-            onTouchStart={e => { e.currentTarget.style.background = k === "⌫" ? "#0a0a0a" : "#222"; }}
-            onTouchEnd={e => { e.currentTarget.style.background = k === "⌫" ? "transparent" : "#141414"; }}
-          >{k}</button>
-        ))}
-      </div>
-
-      {error && <div style={{ marginTop: 28, fontSize: 13, color: "#ff4444", fontWeight: 600 }}>Incorrect PIN</div>}
+      {error && <div style={{ marginTop: 24, fontSize: 12, color: "#ff6b6b", textAlign: "center", maxWidth: 280 }}>{error}</div>}
     </div>
   );
 }
 
 export default function CryptoApp() {
-  const [authed, setAuthed] = React.useState(() => checkSession());
+  const [authUser, setAuthUser] = React.useState(undefined); // undefined = loading, null = signed out, object = signed in
   const [page, setPage] = useState("home");
   useLayoutEffect(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0; }, [page]);
   const [anthropicKey, setAnthropicKey] = useState(() => localStorage.getItem("anthropic_key") || "");
@@ -2015,6 +1979,12 @@ export default function CryptoApp() {
         setGoalInput(String(app.btcGoal));
       }
     }).catch(console.warn);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Firebase auth state listener
+  useEffect(() => {
+    const unsub = onAuthStateChanged(_fbAuth, user => setAuthUser(user ?? null));
+    return unsub;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -2604,7 +2574,13 @@ export default function CryptoApp() {
     );
   };
 
-  if (!authed) return <PinScreen onUnlock={() => setAuthed(true)} />;
+  // Auth loading splash
+  if (authUser === undefined) return (
+    <div style={{ position: "fixed", inset: 0, background: "#080808", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <img src="/icon-192.png" alt="logo" style={{ width: 64, height: 64, borderRadius: 16, opacity: 0.6 }} />
+    </div>
+  );
+  if (!authUser) return <LoginScreen onSignedIn={() => {}} />;
 
   return (
     <div className="app-shell" style={{ fontFamily: RJ, background: "#080808", color: "#ffffff" }}>
@@ -2897,13 +2873,14 @@ export default function CryptoApp() {
               </div>
             </div>
 
-            {/* Lock button */}
-            {APP_PIN && (
+            {/* Sign out */}
+            {authUser && (
               <div style={{ padding: "12px 20px 32px" }}>
-                <button onClick={() => { localStorage.removeItem(SESSION_KEY); setMenuOpen(false); setAuthed(false); }}
+                <div style={{ fontSize: 11, color: "#444", textAlign: "center", marginBottom: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{authUser.email}</div>
+                <button onClick={() => { signOut(_fbAuth); setMenuOpen(false); }}
                   style={{ width: "100%", background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: 12, padding: "11px", fontSize: 13, fontWeight: 600, color: "#555", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                  Lock App
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                  Sign Out
                 </button>
               </div>
             )}
