@@ -2743,7 +2743,6 @@ export default function CryptoApp() {
           height: 100vh;
           height: -webkit-fill-available;
           max-height: -webkit-fill-available;
-          overflow: hidden;
           background: #080808;
         }
 
@@ -2764,6 +2763,15 @@ export default function CryptoApp() {
         @media (min-width: 768px) {
           .modal { max-width: 560px; }
           .options-sheet { max-width: 560px; }
+        }
+
+        /* ── MOBILE: footer in flex flow so it always anchors to bottom ── */
+        @media (max-width: 1099px) {
+          .bottom-nav-bar {
+            position: relative !important;
+            left: auto !important; right: auto !important; bottom: auto !important;
+            flex-shrink: 0; width: 100%;
+          }
         }
 
         /* ── DESKTOP (1100px+) ───────────────────────────────── */
@@ -3492,7 +3500,7 @@ export default function CryptoApp() {
         );
       })()}
 
-      <div ref={scrollContainerRef} style={{ flex: 1, overflowY: "scroll", WebkitOverflowScrolling: "touch", paddingBottom: 80, minHeight: 0 }}>
+      <div ref={scrollContainerRef} style={{ flex: 1, overflowY: "scroll", WebkitOverflowScrolling: "touch", paddingBottom: 16, minHeight: 0 }}>
 
         {/* HOME */}
         {page === "home" && (
