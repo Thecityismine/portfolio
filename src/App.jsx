@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, BarChart, Bar } from "recharts";
+import { initializeApp, getApps } from "firebase/app";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
 
 // ─── STATIC FALLBACK PRICES (used when CMC API key is not set) ───────────────
 const STATIC_PRICES = {
@@ -1894,10 +1896,7 @@ async function fsDel(col, id) {
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
 }
 // ─────────────────────────────────────────────────────────────────────────────
-// FIREBASE AUTH (Google Sign-In)
-import { initializeApp, getApps } from "firebase/app";
-import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
-
+// FIREBASE AUTH
 const _FB_CONFIG = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -2677,7 +2676,7 @@ export default function CryptoApp() {
         @keyframes slideUp { from { transform: translateX(-50%) translateY(100%); } to { transform: translateX(-50%) translateY(0); } }
 
         /* ── RESPONSIVE SHELL ─────────────────────────────────── */
-        .app-shell { display: flex; min-height: 100vh; }
+        .app-shell { display: flex; height: 100dvh; height: 100vh; max-height: -webkit-fill-available; overflow: hidden; }
 
         /* Sidebar: always in DOM; hidden off-screen on mobile */
         .sidebar {
@@ -2690,7 +2689,7 @@ export default function CryptoApp() {
         .sidebar.sidebar-open { transform: translateX(0); }
 
         /* Content column: full-width on mobile */
-        .content-col { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 100vh; }
+        .content-col { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 
         /* ── TABLET (768px+) ──────────────────────────────────── */
         @media (min-width: 768px) {
@@ -3440,7 +3439,7 @@ export default function CryptoApp() {
         );
       })()}
 
-      <div ref={scrollContainerRef} style={{ height: "calc(100vh - 165px)", overflowY: "auto", paddingBottom: 80 }}>
+      <div ref={scrollContainerRef} style={{ flex: 1, overflowY: "auto", paddingBottom: 80, minHeight: 0 }}>
 
         {/* HOME */}
         {page === "home" && (
