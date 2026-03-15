@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from "react";
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, BarChart, Bar } from "recharts";
 import { initializeApp, getApps } from "firebase/app";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
@@ -1936,6 +1936,96 @@ function TaxPage({ fmtFull, TRANSACTIONS, MEMBERS, COIN_PRICES, anthropicKey: gl
 
 
 
+// ─── BTC HISTORICAL PRICES — monthly approximations for Time Machine ─────────
+const BTC_HIST = {
+  "2018-01":14500,"2018-02":10500,"2018-03":7000,"2018-04":9250,
+  "2018-05":8500,"2018-06":6700,"2018-07":7500,"2018-08":6500,
+  "2018-09":6650,"2018-10":6500,"2018-11":4300,"2018-12":3500,
+  "2019-01":3550,"2019-02":3800,"2019-03":4050,"2019-04":5350,
+  "2019-05":8700,"2019-06":10800,"2019-07":9600,"2019-08":9600,
+  "2019-09":8150,"2019-10":9200,"2019-11":7500,"2019-12":7200,
+  "2020-01":9600,"2020-02":8600,"2020-03":6400,"2020-04":8650,
+  "2020-05":9450,"2020-06":9150,"2020-07":11350,"2020-08":11650,
+  "2020-09":10800,"2020-10":13800,"2020-11":19700,"2020-12":28950,
+  "2021-01":33100,"2021-02":45240,"2021-03":58800,"2021-04":57800,
+  "2021-05":37300,"2021-06":35000,"2021-07":41500,"2021-08":47100,
+  "2021-09":43800,"2021-10":61400,"2021-11":57000,"2021-12":46200,
+  "2022-01":38500,"2022-02":43900,"2022-03":45500,"2022-04":38600,
+  "2022-05":29000,"2022-06":19800,"2022-07":23300,"2022-08":20000,
+  "2022-09":19400,"2022-10":20500,"2022-11":16600,"2022-12":16500,
+  "2023-01":23000,"2023-02":23500,"2023-03":28500,"2023-04":29250,
+  "2023-05":27700,"2023-06":30500,"2023-07":29250,"2023-08":26050,
+  "2023-09":26950,"2023-10":34700,"2023-11":37800,"2023-12":42600,
+  "2024-01":42500,"2024-02":62000,"2024-03":71000,"2024-04":63750,
+  "2024-05":67500,"2024-06":62750,"2024-07":65950,"2024-08":58900,
+  "2024-09":63250,"2024-10":72500,"2024-11":97500,"2024-12":97250,
+  "2025-01":102500,"2025-02":84000,"2025-03":82500,
+};
+function btcHistPrice(dateStr) {
+  const ym = dateStr.slice(0, 7);
+  if (BTC_HIST[ym]) return BTC_HIST[ym];
+  const keys = Object.keys(BTC_HIST).sort();
+  for (let i = keys.length - 1; i >= 0; i--) { if (keys[i] <= ym) return BTC_HIST[keys[i]]; }
+  return BTC_HIST[keys[0]];
+}
+
+// ─── LOCAL CRYPTO — AES-GCM with device key in IndexedDB ────────────────────
+// API keys are encrypted before storage in localStorage and Firestore.
+// The AES-256-GCM key lives only in IndexedDB on each device and is never
+// exported or transmitted — ciphertext in Firestore is unreadable without it.
+const _CRYPTO_DB = "portfolio_crypto_v1";
+const _CRYPTO_STORE = "keys";
+const _CRYPTO_KEY_ID = "device_key";
+
+async function _getDeviceKey() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(_CRYPTO_DB, 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore(_CRYPTO_STORE);
+    req.onerror = () => reject(req.error);
+    req.onsuccess = async e => {
+      const db = e.target.result;
+      const tx = db.transaction(_CRYPTO_STORE, "readwrite");
+      const store = tx.objectStore(_CRYPTO_STORE);
+      const getReq = store.get(_CRYPTO_KEY_ID);
+      getReq.onerror = () => reject(getReq.error);
+      getReq.onsuccess = async () => {
+        if (getReq.result) { resolve(getReq.result); return; }
+        const key = await crypto.subtle.generateKey(
+          { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
+        );
+        store.put(key, _CRYPTO_KEY_ID);
+        resolve(key);
+      };
+    };
+  });
+}
+
+async function encryptApiKey(plaintext) {
+  if (!plaintext) return "";
+  try {
+    const key = await _getDeviceKey();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv }, key, new TextEncoder().encode(plaintext)
+    );
+    const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+    return JSON.stringify({ iv: b64(iv), ct: b64(ct), v: 1 });
+  } catch { return ""; }
+}
+
+async function decryptApiKey(encrypted) {
+  if (!encrypted) return "";
+  try {
+    const { iv, ct } = JSON.parse(encrypted);
+    const fromB64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+    const key = await _getDeviceKey();
+    const dec = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: fromB64(iv) }, key, fromB64(ct)
+    );
+    return new TextDecoder().decode(dec);
+  } catch { return null; } // null = wrong device key or corrupted
+}
+
 // ─── FIRESTORE REST API (bypasses SDK WebSocket — plain HTTPS) ───────────────
 const _FS_PROJECT = import.meta.env.VITE_FIREBASE_PROJECT_ID;
 const _FS_APIKEY  = import.meta.env.VITE_FIREBASE_API_KEY;
@@ -2065,39 +2155,78 @@ export default function CryptoApp() {
   const [authUser, setAuthUser] = React.useState(undefined); // undefined = loading, null = signed out, object = signed in
   const [page, setPage] = useState("home");
   useLayoutEffect(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0; }, [page]);
-  const [anthropicKey, setAnthropicKey] = useState(() => localStorage.getItem("anthropic_key") || "");
+  const [anthropicKey, setAnthropicKey] = useState("");
   const [anthropicSyncStatus, setAnthropicSyncStatus] = useState("");
-  const [cmcKey, setCmcKey] = useState(() => localStorage.getItem("cmc_key") || "");
+  const [cmcKey, setCmcKey] = useState("");
   const [cmcSyncStatus, setCmcSyncStatus] = useState(""); // "" | "saving" | "saved" | "error"
   const [livePrices, setLivePrices] = useState({});
   const [liveChanges, setLiveChanges] = useState({}); // { BTC: -2.3, ETH: 1.1, ... } percent_change_24h
   const [liveMarketData, setLiveMarketData] = useState({}); // { BTC: { marketCap, volume24h, high24h, low24h, ... } }
   const [priceStatus, setPriceStatus] = useState("static"); // "static" | "loading" | "live" | "error"
 
-  // Firestore REST API helpers — bypasses SDK WebSocket, uses plain HTTPS
-  // On load: pull all settings from Firestore, fall back to localStorage
+  // On load: decrypt API keys from localStorage, then reconcile with Firestore
   useEffect(() => {
+    // 1. Decrypt locally-stored keys first (so UI isn't blank while Firestore loads)
+    const localCmcEnc = localStorage.getItem("cmc_key_enc");
+    const localAntEnc = localStorage.getItem("anthropic_key_enc");
+    if (localCmcEnc) decryptApiKey(localCmcEnc).then(v => { if (v) setCmcKey(v); });
+    if (localAntEnc) decryptApiKey(localAntEnc).then(v => { if (v) setAnthropicKey(v); });
+
+    // 2. Migrate legacy plaintext keys to encrypted storage, then clear them
+    const legacyCmc = localStorage.getItem("cmc_key");
+    const legacyAnt = localStorage.getItem("anthropic_key");
+    if (legacyCmc && !localCmcEnc) {
+      setCmcKey(legacyCmc);
+      encryptApiKey(legacyCmc).then(enc => {
+        localStorage.setItem("cmc_key_enc", enc);
+        localStorage.removeItem("cmc_key");
+      });
+    }
+    if (legacyAnt && !localAntEnc) {
+      setAnthropicKey(legacyAnt);
+      encryptApiKey(legacyAnt).then(enc => {
+        localStorage.setItem("anthropic_key_enc", enc);
+        localStorage.removeItem("anthropic_key");
+      });
+    }
+
     if (!FS_BASE) return;
-    fsGetAll("settings").then(docs => {
+    fsGetAll("settings").then(async docs => {
       const app = docs.find(d => d.id === "app");
       if (!app) { fsSet("settings", "app", {}).catch(console.warn); return; }
-      // CMC key
-      if (app.cmcKey && app.cmcKey !== localStorage.getItem("cmc_key")) {
-        setCmcKey(app.cmcKey);
-        localStorage.setItem("cmc_key", app.cmcKey);
-      } else if (!app.cmcKey) {
-        const local = localStorage.getItem("cmc_key");
-        if (local) fsUpdate("settings", "app", { cmcKey: local }).catch(console.warn);
+
+      // CMC key — Firestore stores encrypted blob; decrypt with this device's key
+      if (app.cmcKey) {
+        const decrypted = await decryptApiKey(app.cmcKey);
+        if (decrypted) {
+          // Firestore has a valid key for this device — use it
+          setCmcKey(decrypted);
+          encryptApiKey(decrypted).then(enc => localStorage.setItem("cmc_key_enc", enc));
+        }
+        // else: key was encrypted on a different device — keep local value, ignore
+      } else {
+        // Nothing in Firestore — push local encrypted value up if we have one
+        const localEnc = localStorage.getItem("cmc_key_enc");
+        if (localEnc) fsUpdate("settings", "app", { cmcKey: localEnc }).catch(console.warn);
       }
+
       // Anthropic key
-      if (app.anthropicKey && !localStorage.getItem("anthropic_key")) {
-        setAnthropicKey(app.anthropicKey);
-        localStorage.setItem("anthropic_key", app.anthropicKey);
+      if (app.anthropicKey) {
+        const decrypted = await decryptApiKey(app.anthropicKey);
+        if (decrypted) {
+          setAnthropicKey(decrypted);
+          encryptApiKey(decrypted).then(enc => localStorage.setItem("anthropic_key_enc", enc));
+        }
       }
+
       // BTC goal
       if (app.btcGoal && app.btcGoal > 0) {
         setBtcGoal(app.btcGoal);
         setGoalInput(String(app.btcGoal));
+      }
+      // Notification prefs
+      if (app.notifPrefs) {
+        setNotifPrefs(prev => ({ ...prev, ...app.notifPrefs }));
       }
     }).catch(console.warn);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2139,8 +2268,11 @@ export default function CryptoApp() {
   const [coinPage, setCoinPage] = useState("detail");        // "detail" | "transactions"
   const [txOptionsOpen, setTxOptionsOpen] = useState(null);  // tx.id for 3-dot menu
   const [menuOpen, setMenuOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareDataUrl, setShareDataUrl] = useState("");
   const [notifStatus, setNotifStatus] = useState("idle"); // idle | requesting | subscribed | denied | unsupported
   const [notifMsg, setNotifMsg] = useState("");
+  const [notifPrefs, setNotifPrefs] = useState({ dailyChange: true, btcAlert: false, goalMilestone: true, newATH: true, taxFlag: false });
 
   // Register service worker + check existing subscription on mount
   useEffect(() => {
@@ -2196,6 +2328,7 @@ export default function CryptoApp() {
   const [homeChart, setHomeChart] = useState("growth");
   const [expandedTxId, setExpandedTxId] = useState(null);
   const [homeChartRange, setHomeChartRange] = useState("ALL");
+  const [rebalTarget, setRebalTarget] = useState(90);
   const [memberChartRange, setMemberChartRange] = useState("ALL");
   const [coinChartRange, setCoinChartRange] = useState("ALL");
   const [memberBenchmark, setMemberBenchmark] = useState("portfolio"); // "portfolio" | "btc" | "spy"
@@ -2221,12 +2354,18 @@ export default function CryptoApp() {
   const [inheritanceAiSummary, setInheritanceAiSummary] = useState("");
   const [inheritanceAiLoading, setInheritanceAiLoading] = useState(false);
   const [inheritanceAiError, setInheritanceAiError] = useState("");
+  const [simBtcPrice, setSimBtcPrice] = useState(500000); // Generational Wealth Simulator scenario price
   const [inheritanceSaving, setInheritanceSaving] = useState(false);
   const [executorCardCollapsed, setExecutorCardCollapsed] = useState(true);
   const [manageBeneficiariesOpen, setManageBeneficiariesOpen] = useState(false);
   const [inheritanceInstructions, setInheritanceInstructions] = useState("");
   const [inheritanceInstructionsEdit, setInheritanceInstructionsEdit] = useState(false);
   const [inheritanceInstructionsDraft, setInheritanceInstructionsDraft] = useState("");
+
+  // AI Portfolio Advisor — per member, keyed by member.id
+  const [memberAiReports, setMemberAiReports] = useState({}); // { memberId: { text, date } }
+  const [memberAiLoading, setMemberAiLoading] = useState(false);
+  const [memberAiError, setMemberAiError] = useState("");
 
   const firestoreStatusText = !FS_BASE
     ? "Missing Vercel Firebase env vars"
@@ -2346,6 +2485,91 @@ export default function CryptoApp() {
     setInheritanceAiLoading(false);
   }
 
+  async function generateMemberReport(m) {
+    if (!anthropicKey) { setMemberAiError("Add Anthropic API key in Settings first."); return; }
+    setMemberAiLoading(true);
+    setMemberAiError("");
+
+    const mTxs = TRANSACTIONS.filter(t => t.member === m.id);
+    const buyTxs = mTxs.filter(t => t.type === "buy" && t.usdTotal > 0);
+
+    // Per-coin breakdown with cost basis and P&L
+    const holdings = Object.entries(m.holdings || {})
+      .filter(([c, q]) => q * (COIN_PRICES[c] || 0) > 0.01)
+      .sort(([coinA, qa], [coinB, qb]) => (qb * (COIN_PRICES[coinB] || 0)) - (qa * (COIN_PRICES[coinA] || 0)))
+      .map(([coin, qty]) => {
+        const price = COIN_PRICES[coin] || 0;
+        const usdVal = qty * price;
+        const coinCost = buyTxs.filter(t => t.coin === coin).reduce((s, t) => s + t.usdTotal, 0);
+        return {
+          coin,
+          qty: +qty.toFixed(6),
+          usdVal: Math.round(usdVal),
+          pct: m.usd > 0 ? +((usdVal / m.usd) * 100).toFixed(1) : 0,
+          costBasis: Math.round(coinCost),
+          unrealizedPL: Math.round(usdVal - coinCost),
+        };
+      });
+
+    // Short-term positions (bought within last 12 months)
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+    const shortTermCoins = [...new Set(
+      buyTxs.filter(t => new Date(t.date) > oneYearAgo).map(t => t.coin)
+    )];
+
+    // Approaching long-term threshold (bought 10–12 months ago)
+    const tenMonthsAgo = new Date();
+    tenMonthsAgo.setMonth(tenMonthsAgo.getMonth() - 10);
+    const approachingLongTerm = [...new Set(
+      buyTxs.filter(t => {
+        const d = new Date(t.date);
+        return d > oneYearAgo && d < tenMonthsAgo;
+      }).map(t => t.coin)
+    )];
+
+    const btcHolding = holdings.find(h => h.coin === "BTC");
+    const payload = {
+      member: m.name,
+      date: new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
+      totalValue: Math.round(m.usd),
+      totalInvested: Math.round(m.costBasis),
+      unrealizedPL: Math.round(m.unrealizedPL),
+      returnPct: m.costBasis > 0 ? +((m.unrealizedPL / m.costBasis) * 100).toFixed(1) : 0,
+      btcAllocationPct: btcHolding ? btcHolding.pct : 0,
+      btcTargetPct: 90,
+      holdings: holdings.slice(0, 8),
+      shortTermPositions: shortTermCoins,
+      approachingLongTermThreshold: approachingLongTerm,
+      totalTransactions: mTxs.length,
+      recentActivity: mTxs.slice(-3).map(t => ({ date: t.date, type: t.type, coin: t.coin, usd: t.usdTotal })),
+    };
+
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": anthropicKey, "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514", max_tokens: 900,
+          system: "You are a personal Bitcoin-focused portfolio advisor for a family cryptocurrency portfolio tracker. Generate concise, actionable intelligence reports. Be specific with dollar amounts and percentages from the data. Favor Bitcoin maximalism — more BTC allocation is generally better. Use plain text only with section label headers (all caps, on their own line). No markdown, no asterisks, no bullet dashes. Keep total response under 350 words.",
+          messages: [{ role: "user", content: `Generate a portfolio intelligence report for ${m.name} as of ${payload.date}.\n\nPortfolio Data:\n${JSON.stringify(payload, null, 2)}\n\nFormat your response with exactly these 5 sections, each label on its own line:\n\nPORTFOLIO HEALTH\n[2-3 sentences on overall portfolio health, value, and return]\n\nBTC ALLOCATION\n[Current allocation vs 90% target, what it means, how far off]\n\nBIGGEST OPPORTUNITY\n[Largest alt position or specific insight on where value could be moved]\n\nTAX FLAG\n[Any short-term positions approaching 12-month threshold, or "No immediate tax flags."]\n\nRECOMMENDED ACTION\n[One specific, actionable step with exact numbers]` }],
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setMemberAiError(data.error.message);
+      } else {
+        setMemberAiReports(prev => ({
+          ...prev,
+          [m.id]: { text: data.content[0].text, date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) },
+        }));
+      }
+    } catch (e) {
+      setMemberAiError("API error: " + e.message);
+    }
+    setMemberAiLoading(false);
+  }
+
   useEffect(() => {
     if (!FS_BASE) { setFirestoreReady(true); return; }
     refreshTransactions();
@@ -2358,6 +2582,9 @@ export default function CryptoApp() {
     const poll = setInterval(() => { refreshTransactions(); refreshMembers(); }, 60000);
     return () => { window.removeEventListener("focus", onFocus); clearInterval(poll); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clear AI error when switching member portfolios
+  useEffect(() => { setMemberAiError(""); }, [selectedMember]);
 
   // Portfolio snapshots — one document per day keyed by date string
   const [snapshots, setSnapshots] = useState([]);
@@ -2550,6 +2777,20 @@ export default function CryptoApp() {
   const totalBTC = MEMBERS.reduce((s, m) => s + m.btc, 0);
   const totalCostBasis = MEMBERS.reduce((s, m) => s + m.costBasis, 0);
   const totalUnrealized = MEMBERS.reduce((s, m) => s + m.unrealizedPL, 0);
+
+  // ── BITCOIN TIME MACHINE ──────────────────────────────────────────────────
+  // "What if every dollar spent on altcoins had gone into Bitcoin instead?"
+  const timeMachine = useMemo(() => {
+    const altBuys = HARDCODED_TRANSACTIONS.filter(
+      t => t.type === "buy" && t.coin !== "BTC" && t.usdTotal > 0
+    );
+    const altUsdSpent = altBuys.reduce((s, t) => s + t.usdTotal, 0);
+    const hypotheticalBtc = altBuys.reduce((s, t) => s + t.usdTotal / btcHistPrice(t.date), 0);
+    const timeMachineBtc = totalBTC + hypotheticalBtc;
+    const timeMachineValue = timeMachineBtc * BTC_PRICE;
+    const extra = timeMachineValue - totalUSD;
+    return { altUsdSpent, hypotheticalBtc, timeMachineBtc, timeMachineValue, extra };
+  }, [BTC_PRICE, totalBTC, totalUSD]);
 
   // Write one snapshot per day when prices are live and Firestore is ready
   useEffect(() => {
@@ -2897,6 +3138,68 @@ export default function CryptoApp() {
         }
       `}</style>
 
+      {/* SHARE CARD MODAL */}
+      {shareOpen && (
+        <div onClick={() => setShareOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 300, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: "20px 20px 0 0", width: "100%", maxWidth: 520, padding: "20px 20px 40px" }}>
+            <div style={{ width: 36, height: 4, borderRadius: 2, background: "#333", margin: "0 auto 18px" }} />
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", textAlign: "center", marginBottom: 14 }}>Share Your Stack</div>
+            {shareDataUrl && (
+              <img src={shareDataUrl} alt="Portfolio card" style={{ width: "100%", borderRadius: 14, marginBottom: 16, display: "block" }} />
+            )}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+              {[
+                {
+                  label: "Download",
+                  icon: "↓",
+                  color: "#00e676",
+                  fn: () => {
+                    const a = document.createElement("a");
+                    a.href = shareDataUrl;
+                    a.download = "medina-stack.png";
+                    a.click();
+                  }
+                },
+                {
+                  label: "Share on 𝕏",
+                  icon: "𝕏",
+                  color: "#fff",
+                  fn: () => {
+                    const btcAmt = totalBTC.toFixed(4);
+                    const usdAmt = fmtFull(totalUSD);
+                    const goalLine = btcGoal > 0
+                      ? `\nGoal: ${btcAmt}/${btcGoal} BTC (${((totalBTC/btcGoal)*100).toFixed(1)}%)`
+                      : "";
+                    const text = `Medina Family Stack\n${btcAmt} BTC\n${usdAmt}${goalLine}\n\n#Bitcoin #BTC #HODL`;
+                    window.open(`https://x.com/intent/tweet?text=${encodeURIComponent(text)}`, "_blank");
+                  }
+                },
+                {
+                  label: "Copy Text",
+                  icon: "⎘",
+                  color: "#888",
+                  fn: () => {
+                    const btcAmt = totalBTC.toFixed(4);
+                    const usdAmt = fmtFull(totalUSD);
+                    const goalLine = btcGoal > 0
+                      ? `\nGoal: ${btcAmt}/${btcGoal} BTC (${((totalBTC/btcGoal)*100).toFixed(1)}%)`
+                      : "";
+                    navigator.clipboard?.writeText(
+                      `Medina Family Stack\n${btcAmt} BTC\n${usdAmt}${goalLine}\n\n#Bitcoin #BTC #HODL`
+                    );
+                  }
+                },
+              ].map(b => (
+                <button key={b.label} onClick={b.fn} style={{ background: "#141414", border: "1px solid #222", borderRadius: 12, padding: "12px 6px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 18, color: b.color, fontWeight: 700 }}>{b.icon}</span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: "#666" }}>{b.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* SIDEBAR — always in DOM; CSS hides/shows via transform */}
       <div className={menuOpen ? "sidebar sidebar-open" : "sidebar"} style={{ display: "flex", flexDirection: "column", gap: 0, padding: 0, overflowY: "auto" }}>
 
@@ -2926,6 +3229,43 @@ export default function CryptoApp() {
               </div>
             </div>
 
+            {/* ── BITCOIN TIME MACHINE ── */}
+            <div style={{ padding: "12px 16px", borderBottom: "1px solid #141414" }}>
+              <div style={{ background: "linear-gradient(135deg, #0f0a00, #1a0f00)", border: "1px solid #3a2200", borderRadius: 14, padding: "14px 16px", position: "relative", overflow: "hidden" }}>
+                {/* ambient glow */}
+                <div style={{ position: "absolute", top: -20, right: -20, width: 80, height: 80, borderRadius: "50%", background: "#f7931a", opacity: 0.06, filter: "blur(20px)", pointerEvents: "none" }} />
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <span style={{ fontSize: 14 }}>⏱</span>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: "#f7931a", letterSpacing: "0.1em", textTransform: "uppercase" }}>Bitcoin Time Machine</div>
+                </div>
+                <div style={{ fontSize: 11, color: "#665533", marginBottom: 10, lineHeight: 1.5 }}>
+                  If every altcoin dollar had gone into BTC instead…
+                </div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: "#fff", letterSpacing: "-0.03em", lineHeight: 1, marginBottom: 4 }}>
+                  {fmt(timeMachine.timeMachineValue)}
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#f7931a", marginBottom: 14 }}>
+                  +{fmt(timeMachine.extra)} more than today
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                  {[
+                    { lbl: "Would hold", val: `${timeMachine.timeMachineBtc.toFixed(4)} BTC`, color: "#f7931a" },
+                    { lbl: "Actually hold", val: `${totalBTC.toFixed(4)} BTC`, color: "#888" },
+                    { lbl: "Altcoin spend", val: fmt(timeMachine.altUsdSpent), color: "#ff4444" },
+                    { lbl: "BTC missed", val: `${timeMachine.hypotheticalBtc.toFixed(4)}`, color: "#ff4444" },
+                  ].map(s => (
+                    <div key={s.lbl} style={{ background: "#0a0800", border: "1px solid #2a1800", borderRadius: 8, padding: "7px 9px" }}>
+                      <div style={{ fontSize: 9, color: "#554422", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 3 }}>{s.lbl}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: s.color }}>{s.val}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop: 10, fontSize: 10, color: "#443322", textAlign: "center", lineHeight: 1.4 }}>
+                  Based on historical BTC prices at time of each altcoin purchase
+                </div>
+              </div>
+            </div>
+
             {/* ── MENU SECTIONS ── */}
             <div style={{ padding: "14px 20px 0" }}>
               {[
@@ -2944,7 +3284,7 @@ export default function CryptoApp() {
                 {
                   section: "Tax",
                   items: [
-                    { label: "Tax Reporting", sub: "2025 · FIFO · CoinTracking", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>, badge: "BETA", badgeColor: "#f7931a", action: () => { setPage("tax"); setMenuOpen(false); } },
+                    { label: "Tax Reporting", sub: "Capital gains & tax lots", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>, badge: "BETA", badgeColor: "#f7931a", action: () => { setPage("tax"); setMenuOpen(false); } },
                   ]
                 },
                 {
@@ -3570,13 +3910,132 @@ export default function CryptoApp() {
             : page === "inheritance" ? "Inheritance"
             : "Transactions"}
         </span>
-        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-          <div style={{ width: 7, height: 7, borderRadius: "50%",
-            background: priceStatus === "live" ? "#00e676" : priceStatus === "loading" ? "#f7931a" : priceStatus === "error" ? "#ff4444" : "#555",
-            boxShadow: priceStatus === "live" ? "0 0 8px #00e676" : "none" }} />
-          <span style={{ fontSize: 12, fontWeight: 500, color: priceStatus === "live" ? "#00e676" : priceStatus === "loading" ? "#f7931a" : priceStatus === "error" ? "#ff4444" : "#555" }}>
-            {priceStatus === "live" ? "LIVE" : priceStatus === "loading" ? "SYNCING" : priceStatus === "error" ? "ERROR" : "STATIC"}
-          </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {page === "home" && (
+            <button
+              onClick={() => {
+                // Draw canvas card
+                const W = 800, H = 440, DPR = 2;
+                const canvas = document.createElement("canvas");
+                canvas.width = W * DPR; canvas.height = H * DPR;
+                const ctx = canvas.getContext("2d");
+                ctx.scale(DPR, DPR);
+
+                // Background
+                ctx.fillStyle = "#080808";
+                ctx.fillRect(0, 0, W, H);
+
+                // Ambient orange glow top-right
+                const glow = ctx.createRadialGradient(W - 80, 80, 10, W - 80, 80, 260);
+                glow.addColorStop(0, "rgba(247,147,26,0.18)");
+                glow.addColorStop(1, "rgba(247,147,26,0)");
+                ctx.fillStyle = glow;
+                ctx.fillRect(0, 0, W, H);
+
+                // Border
+                ctx.strokeStyle = "#1e1e1e";
+                ctx.lineWidth = 1;
+                const r = 20;
+                ctx.beginPath();
+                ctx.moveTo(r, 0); ctx.lineTo(W-r, 0); ctx.quadraticCurveTo(W, 0, W, r);
+                ctx.lineTo(W, H-r); ctx.quadraticCurveTo(W, H, W-r, H);
+                ctx.lineTo(r, H); ctx.quadraticCurveTo(0, H, 0, H-r);
+                ctx.lineTo(0, r); ctx.quadraticCurveTo(0, 0, r, 0);
+                ctx.closePath(); ctx.stroke();
+
+                // ₿ logo badge
+                ctx.fillStyle = "#f7931a22";
+                ctx.beginPath(); ctx.arc(60, 60, 28, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = "#f7931a";
+                ctx.font = "bold 26px sans-serif";
+                ctx.textAlign = "center"; ctx.textBaseline = "middle";
+                ctx.fillText("₿", 60, 61);
+
+                // Title
+                ctx.fillStyle = "#888";
+                ctx.font = "400 14px sans-serif";
+                ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+                ctx.fillText("FAMILY PORTFOLIO", 100, 52);
+                ctx.fillStyle = "#ffffff";
+                ctx.font = "bold 22px sans-serif";
+                ctx.fillText("Medina Family Stack", 100, 76);
+
+                // Date
+                ctx.fillStyle = "#444";
+                ctx.font = "13px sans-serif";
+                const d = new Date();
+                ctx.fillText(d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }), 100, 98);
+
+                // Divider
+                ctx.strokeStyle = "#1a1a1a";
+                ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(48, 122); ctx.lineTo(W - 48, 122); ctx.stroke();
+
+                // BTC amount
+                ctx.fillStyle = "#f7931a";
+                ctx.font = "bold 64px sans-serif";
+                ctx.textAlign = "left";
+                ctx.fillText(`${totalBTC.toFixed(4)} BTC`, 48, 210);
+
+                // USD value
+                ctx.fillStyle = "#ffffff";
+                ctx.font = "bold 36px sans-serif";
+                ctx.fillText(fmtFull(totalUSD), 48, 258);
+
+                // Unrealized P&L
+                const retPct = totalCostBasis > 0 ? ((totalUnrealized / totalCostBasis) * 100) : 0;
+                const plColor = totalUnrealized >= 0 ? "#00e676" : "#ff4444";
+                ctx.fillStyle = plColor;
+                ctx.font = "600 18px sans-serif";
+                ctx.fillText(`${totalUnrealized >= 0 ? "+" : ""}${fmtFull(totalUnrealized)}  (${retPct >= 0 ? "+" : ""}${retPct.toFixed(2)}%)`, 48, 290);
+
+                // Goal bar
+                if (btcGoal > 0) {
+                  const pct = Math.min(totalBTC / btcGoal, 1);
+                  const barX = 48, barY = 322, barW = W - 96, barH = 12;
+                  ctx.fillStyle = "#1a1a1a";
+                  ctx.beginPath();
+                  ctx.roundRect(barX, barY, barW, barH, 6);
+                  ctx.fill();
+                  ctx.fillStyle = "#f7931a";
+                  ctx.beginPath();
+                  ctx.roundRect(barX, barY, barW * pct, barH, 6);
+                  ctx.fill();
+                  ctx.fillStyle = "#888";
+                  ctx.font = "13px sans-serif";
+                  ctx.textAlign = "left";
+                  ctx.fillText(`Goal: ${totalBTC.toFixed(4)} / ${btcGoal} BTC`, barX, barY - 10);
+                  ctx.fillStyle = "#f7931a";
+                  ctx.textAlign = "right";
+                  ctx.fillText(`${(pct * 100).toFixed(1)}% complete`, barX + barW, barY - 10);
+                }
+
+                // Footer
+                ctx.fillStyle = "#333";
+                ctx.font = "12px sans-serif";
+                ctx.textAlign = "center";
+                ctx.fillText("₿ Stack tracked on Bitcoin. Not financial advice.", W / 2, H - 22);
+
+                setShareDataUrl(canvas.toDataURL("image/png"));
+                setShareOpen(true);
+              }}
+              style={{ background: "none", border: "1px solid #2a2a2a", borderRadius: 8, padding: "4px 10px", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: "#888" }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#888" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+                <polyline points="16 6 12 2 8 6"/>
+                <line x1="12" y1="2" x2="12" y2="15"/>
+              </svg>
+              <span style={{ fontSize: 11, fontWeight: 600 }}>Share</span>
+            </button>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <div style={{ width: 7, height: 7, borderRadius: "50%",
+              background: priceStatus === "live" ? "#00e676" : priceStatus === "loading" ? "#f7931a" : priceStatus === "error" ? "#ff4444" : "#555",
+              boxShadow: priceStatus === "live" ? "0 0 8px #00e676" : "none" }} />
+            <span style={{ fontSize: 12, fontWeight: 500, color: priceStatus === "live" ? "#00e676" : priceStatus === "loading" ? "#f7931a" : priceStatus === "error" ? "#ff4444" : "#555" }}>
+              {priceStatus === "live" ? "LIVE" : priceStatus === "loading" ? "SYNCING" : priceStatus === "error" ? "ERROR" : "STATIC"}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -3725,6 +4184,156 @@ export default function CryptoApp() {
               );
             })()}
 
+            {/* ── ALLOCATION INTELLIGENCE ── */}
+            {(() => {
+              // Aggregate all holdings across members
+              const agg = {};
+              MEMBERS.forEach(m => Object.entries(m.holdings).forEach(([c, q]) => { agg[c] = (agg[c] || 0) + q; }));
+
+              const btcUsd   = (agg.BTC || 0) * BTC_PRICE;
+              const btcPct   = totalUSD > 0 ? btcUsd / totalUSD * 100 : 0;
+              const drift    = btcPct - 100;
+
+              // Alt coins sorted by USD value (skip dust < $1)
+              const alts = Object.entries(agg)
+                .filter(([c]) => c !== "BTC")
+                .map(([c, qty]) => ({ c, qty, usd: qty * (COIN_PRICES[c] || 0), pct: totalUSD > 0 ? qty * (COIN_PRICES[c] || 0) / totalUSD * 100 : 0 }))
+                .filter(a => a.usd >= 1)
+                .sort((a, b) => b.usd - a.usd);
+
+              const altTotal = alts.reduce((s, a) => s + a.usd, 0);
+
+              // Rebalance steps: sell alts (largest first) until target is met
+              const targetBtcUsd = totalUSD * (rebalTarget / 100);
+              const usdToShift   = Math.max(0, targetBtcUsd - btcUsd);
+              const steps = [];
+              let rem = usdToShift;
+              for (const a of alts) {
+                if (rem <= 0.01) break;
+                const sellUsd = Math.min(a.usd, rem);
+                const sellQty = COIN_PRICES[a.c] > 0 ? sellUsd / COIN_PRICES[a.c] : 0;
+                const buyBtc  = sellUsd / BTC_PRICE;
+                steps.push({ coin: a.c, sellQty, sellUsd, buyBtc });
+                rem -= sellUsd;
+              }
+              const gainBtc    = steps.reduce((s, r) => s + r.buyBtc, 0);
+              const resultPct  = totalUSD > 0 ? (btcUsd + usdToShift) / totalUSD * 100 : 0;
+              const alreadyAt  = btcPct >= rebalTarget;
+
+              const fmtQty = (n, c) => {
+                if (n >= 1000) return `${Math.round(n).toLocaleString()} ${c}`;
+                if (n >= 1)    return `${n.toFixed(2)} ${c}`;
+                return `${n.toFixed(4)} ${c}`;
+              };
+
+              return (
+                <div style={{ padding: "16px 18px 0" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>Allocation Intelligence</div>
+
+                  {/* ── BTC Allocation Gauge ── */}
+                  <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "14px 16px", marginBottom: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>BTC Allocation</div>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: "#555", background: "#1a1a1a", border: "1px solid #252525", borderRadius: 6, padding: "3px 9px" }}>Target: 100%</span>
+                    </div>
+                    {/* Bar */}
+                    <div style={{ position: "relative", height: 10, background: "#1a1a1a", borderRadius: 5, marginBottom: 10, overflow: "hidden" }}>
+                      <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${Math.min(btcPct, 100)}%`, background: btcPct >= 90 ? "#00e676" : btcPct >= 70 ? "#f7931a" : "#ff4444", borderRadius: 5, transition: "width 0.4s" }} />
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                      {[
+                        { lbl: "Current", val: `${btcPct.toFixed(1)}%`, color: btcPct >= 90 ? "#00e676" : btcPct >= 70 ? "#f7931a" : "#ff4444" },
+                        { lbl: "Target",  val: "100%",                  color: "#555" },
+                        { lbl: "Drift",   val: `${drift.toFixed(1)}%`,  color: drift >= 0 ? "#00e676" : "#ff4444" },
+                      ].map(s => (
+                        <div key={s.lbl} style={{ textAlign: "center", background: "#0d0d0d", borderRadius: 8, padding: "8px 4px" }}>
+                          <div style={{ fontSize: 9, color: "#444", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 3 }}>{s.lbl}</div>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: s.color }}>{s.val}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* ── Alt Exposure Breakdown ── */}
+                  {alts.length > 0 && (
+                    <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "14px 16px", marginBottom: 8 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>Alt Exposure</div>
+                        <span style={{ fontSize: 11, color: "#f7931a", fontWeight: 600 }}>{fmt(altTotal)} total</span>
+                      </div>
+                      {alts.slice(0, 6).map((a, i) => (
+                        <div key={a.c} style={{ marginBottom: i < Math.min(alts.length, 6) - 1 ? 8 : 0 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: "#ccc" }}>{a.c}</span>
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <span style={{ fontSize: 11, color: "#888" }}>{a.pct.toFixed(1)}%</span>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: "#fff", minWidth: 70, textAlign: "right" }}>{fmt(a.usd)}</span>
+                            </div>
+                          </div>
+                          <div style={{ height: 4, background: "#1a1a1a", borderRadius: 2, overflow: "hidden" }}>
+                            <div style={{ height: "100%", width: `${altTotal > 0 ? a.usd / altTotal * 100 : 0}%`, background: i === 0 ? "#627eea" : i === 1 ? "#58d9a4" : "#f7c948", borderRadius: 2 }} />
+                          </div>
+                        </div>
+                      ))}
+                      {alts.length > 6 && <div style={{ fontSize: 11, color: "#444", marginTop: 8, textAlign: "center" }}>+{alts.length - 6} more coins</div>}
+                    </div>
+                  )}
+
+                  {/* ── Suggested Rebalance ── */}
+                  <div style={{ background: "#0a0f0a", border: "1px solid #1a3a1a", borderRadius: 14, padding: "14px 16px", marginBottom: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 10 }}>Suggested Rebalance</div>
+                    {/* Target selector */}
+                    <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                      <span style={{ fontSize: 11, color: "#555", alignSelf: "center", marginRight: 2 }}>Target BTC</span>
+                      {[80, 90, 95, 100].map(t => (
+                        <button key={t} onClick={() => setRebalTarget(t)}
+                          style={{ flex: 1, background: rebalTarget === t ? "#00e676" : "#141414", border: `1px solid ${rebalTarget === t ? "#00e676" : "#2a2a2a"}`, borderRadius: 8, padding: "5px 0", fontSize: 12, fontWeight: 700, color: rebalTarget === t ? "#000" : "#555", cursor: "pointer" }}>
+                          {t}%
+                        </button>
+                      ))}
+                    </div>
+
+                    {alreadyAt ? (
+                      <div style={{ textAlign: "center", padding: "12px 0" }}>
+                        <div style={{ fontSize: 20, marginBottom: 4 }}>✓</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#00e676" }}>Already at {rebalTarget}%+ BTC</div>
+                        <div style={{ fontSize: 11, color: "#555", marginTop: 4 }}>No rebalance needed for this target.</div>
+                      </div>
+                    ) : (
+                      <>
+                        {steps.map((s, i) => (
+                          <div key={s.coin} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", background: "#0d0d0d", borderRadius: 10, marginBottom: 6, border: "1px solid #1a1a1a" }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: "#ff6b6b" }}>Sell {fmtQty(s.sellQty, s.coin)}</div>
+                              <div style={{ fontSize: 11, color: "#555" }}>{fmt(s.sellUsd)}</div>
+                            </div>
+                            <div style={{ fontSize: 14, color: "#333" }}>→</div>
+                            <div style={{ textAlign: "right" }}>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: "#f7931a" }}>Buy {s.buyBtc.toFixed(5)} BTC</div>
+                              <div style={{ fontSize: 11, color: "#555" }}>{fmt(s.sellUsd)}</div>
+                            </div>
+                          </div>
+                        ))}
+                        {/* Summary row */}
+                        <div style={{ marginTop: 8, padding: "10px 12px", background: "#0d1f0d", border: "1px solid #1a3a1a", borderRadius: 10 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                            <span style={{ fontSize: 11, color: "#556655" }}>BTC after rebalance</span>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: "#00e676" }}>{(totalBTC + gainBtc).toFixed(5)} BTC</span>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span style={{ fontSize: 11, color: "#556655" }}>Allocation</span>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: "#00e676" }}>
+                              {btcPct.toFixed(1)}% → {resultPct.toFixed(1)}%
+                            </span>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
             <div style={{ padding: "18px 18px 0" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 500, color: "#666" }}>Portfolio Growth</div>
@@ -3812,70 +4421,112 @@ export default function CryptoApp() {
               })()}
             </div>
 
-            {/* FAMILY GOALS */}
+            {/* FAMILY GOALS + STACKING ANALYTICS */}
             {(() => {
-              const progress = Math.min(totalBTC / btcGoal, 1);
+              const progress  = Math.min(totalBTC / btcGoal, 1);
               const remaining = Math.max(btcGoal - totalBTC, 0);
-              const pct = Math.min(progress * 100, 100).toFixed(1);
+              const pct       = Math.min(progress * 100, 100).toFixed(1);
+              const isReached = remaining <= 0;
 
-              // Stacking pace: total BTC bought / months since earliest tx
+              // ── All BTC buy transactions ──────────────────────────────────
+              const btcBuys = TRANSACTIONS.filter(t => t.type === "buy" && t.coin === "BTC" && t.date);
+
+              // ── Velocity calculations ─────────────────────────────────────
+              const now = Date.now();
+              const msPerMonth = 30.44 * 86400000;
+
+              const btcBoughtInWindow = (months) => {
+                const cutoff = now - months * msPerMonth;
+                return btcBuys.filter(t => new Date(t.date).getTime() >= cutoff).reduce((s, t) => s + t.qty, 0);
+              };
+
               const allDates = TRANSACTIONS.filter(t => t.usdTotal > 0 && t.type === "buy" && t.date).map(t => new Date(t.date));
               const earliestDate = allDates.length > 0 ? new Date(Math.min(...allDates.map(d => d.getTime()))) : null;
-              const monthsActive = earliestDate ? Math.max((Date.now() - earliestDate.getTime()) / (1000 * 60 * 60 * 24 * 30.44), 1) : null;
-              const btcPerMonth = monthsActive ? totalBTC / monthsActive : null;
-              const monthsToGoal = btcPerMonth && remaining > 0 ? remaining / btcPerMonth : null;
-              const etaDate = monthsToGoal ? new Date(Date.now() + monthsToGoal * 30.44 * 86400000) : null;
+              const monthsActive = earliestDate ? Math.max((now - earliestDate.getTime()) / msPerMonth, 1) : null;
+
+              const velAllTime = monthsActive ? totalBTC / monthsActive : null;
+              const vel12mo    = btcBoughtInWindow(12) / 12;
+              const vel6mo     = btcBoughtInWindow(6)  / 6;
+              // Use 12-month velocity for forecasting (more realistic than all-time)
+              const velForecast = vel12mo > 0 ? vel12mo : velAllTime || 0;
+
+              const monthsToGoal = velForecast > 0 && remaining > 0 ? remaining / velForecast : null;
+              const etaDate  = monthsToGoal ? new Date(now + monthsToGoal * msPerMonth) : null;
               const etaLabel = etaDate ? etaDate.toLocaleDateString("en-US", { month: "long", year: "numeric" }) : null;
-              const isReached = remaining <= 0;
+
+              // ── Stack Forecast milestones ─────────────────────────────────
+              const forecastMilestones = velForecast > 0
+                ? [5, 10, 21].map(target => {
+                    if (totalBTC >= target) return { target, reached: true };
+                    const months = (target - totalBTC) / velForecast;
+                    const d = new Date(now + months * msPerMonth);
+                    return { target, reached: false, label: d.toLocaleDateString("en-US", { month: "short", year: "numeric" }) };
+                  })
+                : [];
+
+              // ── Annual stacking history ───────────────────────────────────
+              const yearMap = {};
+              btcBuys.forEach(t => {
+                const yr = t.date.slice(0, 4);
+                yearMap[yr] = (yearMap[yr] || 0) + t.qty;
+              });
+              const years = Object.entries(yearMap)
+                .sort(([a], [b]) => Number(a) - Number(b))
+                .filter(([, qty]) => qty > 0);
+              const maxYearBtc = Math.max(...years.map(([, q]) => q), 0.0001);
+
+              // ── DCA Analysis ─────────────────────────────────────────────
+              // Group BTC buys by month, compute avg price and eff (BTC per $1k)
+              const monthMap = {};
+              btcBuys.forEach(t => {
+                if (!t.usdTotal || !t.qty) return;
+                const ym = t.date.slice(0, 7);
+                if (!monthMap[ym]) monthMap[ym] = { qty: 0, usd: 0 };
+                monthMap[ym].qty += t.qty;
+                monthMap[ym].usd += t.usdTotal;
+              });
+              const dcaMonths = Object.entries(monthMap)
+                .filter(([, v]) => v.usd > 10 && v.qty > 0)
+                .map(([ym, v]) => ({
+                  ym,
+                  avgPrice: v.usd / v.qty,
+                  eff: (v.qty / v.usd) * 1000, // BTC per $1000
+                  totalQty: v.qty,
+                  totalUsd: v.usd,
+                }));
+              const bestDca  = dcaMonths.length ? [...dcaMonths].sort((a, b) => b.eff - a.eff)[0]   : null;
+              const worstDca = dcaMonths.length ? [...dcaMonths].sort((a, b) => a.eff - b.eff)[0]  : null;
+              const avgPricePaid = dcaMonths.length
+                ? dcaMonths.reduce((s, m) => s + m.avgPrice * m.totalQty, 0) / dcaMonths.reduce((s, m) => s + m.totalQty, 0)
+                : null;
+              const fmtYM = ym => { const [y, m] = ym.split("-"); return new Date(+y, +m - 1).toLocaleDateString("en-US", { month: "short", year: "numeric" }); };
 
               return (
                 <div style={{ padding: "18px 18px 0" }}>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: "#666", marginBottom: 10 }}>Family Goal</div>
-                  <div style={{ background: "#111", border: `1px solid ${isReached ? "#1a3a1a" : "#1e1e1e"}`, borderRadius: 16, padding: "16px 16px 14px" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>Stacking Analytics</div>
+
+                  {/* ── Goal Card ── */}
+                  <div style={{ background: "#111", border: `1px solid ${isReached ? "#1a3a1a" : "#1e1e1e"}`, borderRadius: 16, padding: "16px 16px 14px", marginBottom: 8 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
                       <div>
                         <div style={{ fontSize: 11, color: "#555", marginBottom: 3 }}>Family BTC Target</div>
                         {editingGoal ? (
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <input
-                              autoFocus
-                              type="number"
-                              min="0.1"
-                              step="0.5"
-                              value={goalInput}
+                            <input autoFocus type="number" min="0.1" step="0.5" value={goalInput}
                               onChange={e => setGoalInput(e.target.value)}
                               onKeyDown={e => {
-                                if (e.key === "Enter") {
-                                  const v = parseFloat(goalInput);
-                                  if (!isNaN(v) && v > 0) { setBtcGoal(v); fsUpdate("settings","app",{btcGoal:v}).catch(console.warn); }
-                                  setEditingGoal(false);
-                                }
+                                if (e.key === "Enter") { const v = parseFloat(goalInput); if (!isNaN(v) && v > 0) { setBtcGoal(v); fsUpdate("settings","app",{btcGoal:v}).catch(console.warn); } setEditingGoal(false); }
                                 if (e.key === "Escape") setEditingGoal(false);
                               }}
-                              style={{
-                                width: 80, fontSize: 22, fontWeight: 700, color: "#f7931a",
-                                background: "#1a1a1a", border: "1px solid #f7931a",
-                                borderRadius: 8, padding: "2px 8px", outline: "none",
-                              }}
+                              style={{ width: 80, fontSize: 22, fontWeight: 700, color: "#f7931a", background: "#1a1a1a", border: "1px solid #f7931a", borderRadius: 8, padding: "2px 8px", outline: "none" }}
                             />
-                            <button
-                              onClick={() => {
-                                const v = parseFloat(goalInput);
-                                if (!isNaN(v) && v > 0) { setBtcGoal(v); fsUpdate("settings","app",{btcGoal:v}).catch(console.warn); }
-                                setEditingGoal(false);
-                              }}
-                              style={{ background: "#f7931a", border: "none", borderRadius: 6, padding: "4px 10px", color: "#000", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
-                            >✓</button>
-                            <button
-                              onClick={() => setEditingGoal(false)}
-                              style={{ background: "#1e1e1e", border: "none", borderRadius: 6, padding: "4px 10px", color: "#666", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
-                            >✕</button>
+                            <button onClick={() => { const v = parseFloat(goalInput); if (!isNaN(v) && v > 0) { setBtcGoal(v); fsUpdate("settings","app",{btcGoal:v}).catch(console.warn); } setEditingGoal(false); }}
+                              style={{ background: "#f7931a", border: "none", borderRadius: 6, padding: "4px 10px", color: "#000", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>✓</button>
+                            <button onClick={() => setEditingGoal(false)}
+                              style={{ background: "#1e1e1e", border: "none", borderRadius: 6, padding: "4px 10px", color: "#666", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>✕</button>
                           </div>
                         ) : (
-                          <div
-                            onClick={() => { setGoalInput(btcGoal.toString()); setEditingGoal(true); }}
-                            style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer" }}
-                          >
+                          <div onClick={() => { setGoalInput(btcGoal.toString()); setEditingGoal(true); }} style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer" }}>
                             <span style={{ fontSize: 22, fontWeight: 700, color: "#f7931a", letterSpacing: "-0.01em" }}>{btcGoal % 1 === 0 ? btcGoal.toFixed(1) : btcGoal} BTC</span>
                             <span style={{ fontSize: 12, color: "#444", marginTop: 2 }}>✏️</span>
                           </div>
@@ -3886,9 +4537,8 @@ export default function CryptoApp() {
                         <div style={{ fontSize: 22, fontWeight: 700, color: isReached ? "#00e676" : "#fff" }}>{pct}%</div>
                       </div>
                     </div>
-                    {/* Progress bar */}
                     <div style={{ height: 10, background: "#1e1e1e", borderRadius: 5, overflow: "hidden", marginBottom: 10 }}>
-                      <div style={{ height: "100%", width: `${pct}%`, background: isReached ? "linear-gradient(90deg, #00b84c, #00e676)" : "linear-gradient(90deg, #f7931a, #ffb347)", borderRadius: 5, transition: "width 0.5s ease" }} />
+                      <div style={{ height: "100%", width: `${pct}%`, background: isReached ? "linear-gradient(90deg,#00b84c,#00e676)" : "linear-gradient(90deg,#f7931a,#ffb347)", borderRadius: 5, transition: "width 0.5s ease" }} />
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                       <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
@@ -3899,27 +4549,113 @@ export default function CryptoApp() {
                         {isReached ? `+${(totalBTC - btcGoal).toFixed(5)} BTC over goal` : `${remaining.toFixed(5)} BTC to go`}
                       </div>
                     </div>
-
-                    {/* Stacking pace + ETA */}
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, paddingTop: 12, borderTop: "1px solid #1a1a1a" }}>
                       <div style={{ background: "#0d0d0d", borderRadius: 10, padding: "10px 12px" }}>
-                        <div style={{ fontSize: 11, color: "#555", marginBottom: 3 }}>Stacking Rate</div>
-                        <div style={{ fontSize: 16, fontWeight: 700, color: "#f7931a" }}>
-                          {btcPerMonth ? `${btcPerMonth.toFixed(4)}` : "—"}
-                        </div>
+                        <div style={{ fontSize: 11, color: "#555", marginBottom: 3 }}>12-mo Velocity</div>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: "#f7931a" }}>{vel12mo > 0 ? vel12mo.toFixed(5) : "—"}</div>
                         <div style={{ fontSize: 11, color: "#444", marginTop: 1 }}>BTC / month</div>
                       </div>
                       <div style={{ background: "#0d0d0d", borderRadius: 10, padding: "10px 12px" }}>
                         <div style={{ fontSize: 11, color: "#555", marginBottom: 3 }}>Goal ETA</div>
-                        <div style={{ fontSize: 16, fontWeight: 700, color: isReached ? "#00e676" : "#fff" }}>
-                          {isReached ? "✓ Reached!" : etaLabel || "—"}
-                        </div>
-                        <div style={{ fontSize: 11, color: "#444", marginTop: 1 }}>
-                          {!isReached && monthsToGoal ? `~${Math.ceil(monthsToGoal)} months away` : ""}
-                        </div>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: isReached ? "#00e676" : "#fff" }}>{isReached ? "✓ Reached!" : etaLabel || "—"}</div>
+                        <div style={{ fontSize: 11, color: "#444", marginTop: 1 }}>{!isReached && monthsToGoal ? `~${Math.ceil(monthsToGoal)} months away` : ""}</div>
                       </div>
                     </div>
                   </div>
+
+                  {/* ── Stacking Velocity ── */}
+                  <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "14px 16px", marginBottom: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 10 }}>Stacking Velocity</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+                      {[
+                        { lbl: "All-time", val: velAllTime, sub: "avg BTC/mo" },
+                        { lbl: "Last 12mo", val: vel12mo,   sub: "BTC/mo" },
+                        { lbl: "Last 6mo",  val: vel6mo,    sub: "BTC/mo" },
+                      ].map(v => (
+                        <div key={v.lbl} style={{ background: "#0d0d0d", borderRadius: 10, padding: "10px 8px", textAlign: "center" }}>
+                          <div style={{ fontSize: 9, color: "#444", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>{v.lbl}</div>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: "#f7931a" }}>{v.val > 0 ? v.val.toFixed(5) : "—"}</div>
+                          <div style={{ fontSize: 9, color: "#333", marginTop: 2 }}>{v.sub}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* ── Stack Forecast ── */}
+                  {forecastMilestones.length > 0 && (
+                    <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "14px 16px", marginBottom: 8 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 3 }}>Stack Forecast</div>
+                      <div style={{ fontSize: 11, color: "#444", marginBottom: 10 }}>At current 12-month pace</div>
+                      {forecastMilestones.map(m => (
+                        <div key={m.target} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid #141414" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div style={{ width: 28, height: 28, borderRadius: 8, background: m.reached ? "#0d2a0d" : "#0d0d0d", border: `1px solid ${m.reached ? "#1a4a1a" : "#1e1e1e"}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: m.reached ? "#00e676" : "#f7931a", fontWeight: 700 }}>₿</div>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>{m.target} BTC</span>
+                          </div>
+                          {m.reached
+                            ? <span style={{ fontSize: 12, fontWeight: 700, color: "#00e676", background: "#00e67618", border: "1px solid #00e67633", borderRadius: 6, padding: "3px 10px" }}>✓ Reached</span>
+                            : <span style={{ fontSize: 13, fontWeight: 600, color: "#888" }}>{m.label}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* ── Annual Stacking History ── */}
+                  {years.length > 0 && (
+                    <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "14px 16px", marginBottom: 8 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 10 }}>Annual Stacking History</div>
+                      {years.map(([yr, qty]) => (
+                        <div key={yr} style={{ marginBottom: 8 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: "#888" }}>{yr}</span>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: "#f7931a" }}>+{qty.toFixed(5)} BTC</span>
+                          </div>
+                          <div style={{ height: 6, background: "#1a1a1a", borderRadius: 3, overflow: "hidden" }}>
+                            <div style={{ height: "100%", width: `${qty / maxYearBtc * 100}%`, background: "linear-gradient(90deg, #f7931a, #ffb347)", borderRadius: 3 }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* ── DCA Analysis ── */}
+                  {dcaMonths.length > 0 && (
+                    <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "14px 16px", marginBottom: 8 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 10 }}>DCA Analysis</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
+                        {bestDca && (
+                          <div style={{ background: "#0a1f0a", border: "1px solid #1a3a1a", borderRadius: 10, padding: "10px 12px" }}>
+                            <div style={{ fontSize: 9, color: "#3a6a3a", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Best Buy Month</div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "#00e676", marginBottom: 2 }}>{fmtYM(bestDca.ym)}</div>
+                            <div style={{ fontSize: 11, color: "#556655" }}>{fmt(bestDca.avgPrice)} avg price</div>
+                            <div style={{ fontSize: 11, color: "#00e676", marginTop: 2, fontWeight: 600 }}>{bestDca.eff.toFixed(4)} BTC / $1K</div>
+                          </div>
+                        )}
+                        {worstDca && (
+                          <div style={{ background: "#1a0a0a", border: "1px solid #3a1a1a", borderRadius: 10, padding: "10px 12px" }}>
+                            <div style={{ fontSize: 9, color: "#6a3a3a", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Worst Buy Month</div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "#ff6b6b", marginBottom: 2 }}>{fmtYM(worstDca.ym)}</div>
+                            <div style={{ fontSize: 11, color: "#665555" }}>{fmt(worstDca.avgPrice)} avg price</div>
+                            <div style={{ fontSize: 11, color: "#ff6b6b", marginTop: 2, fontWeight: 600 }}>{worstDca.eff.toFixed(4)} BTC / $1K</div>
+                          </div>
+                        )}
+                      </div>
+                      {avgPricePaid && (
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "#0d0d0d", borderRadius: 10 }}>
+                          <div>
+                            <div style={{ fontSize: 10, color: "#444", marginBottom: 2 }}>Avg Price Paid (BTC)</div>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>{fmt(avgPricePaid)}</div>
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ fontSize: 10, color: "#444", marginBottom: 2 }}>Unrealized Multiple</div>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: BTC_PRICE > avgPricePaid ? "#00e676" : "#ff4444" }}>
+                              {(BTC_PRICE / avgPricePaid).toFixed(2)}×
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -4322,6 +5058,95 @@ export default function CryptoApp() {
                   </div>
                 </div>
               )}
+
+              {/* ── AI PORTFOLIO ADVISOR ── */}
+              {(() => {
+                const report = memberAiReports[member.id];
+                const SECTION_COLORS = {
+                  "PORTFOLIO HEALTH": "#00e676",
+                  "BTC ALLOCATION": "#f7931a",
+                  "BIGGEST OPPORTUNITY": "#4d8aff",
+                  "TAX FLAG": "#ff6b6b",
+                  "RECOMMENDED ACTION": "#ffd700",
+                };
+                // Parse sections: split on double newline, first all-caps line is label
+                const sections = report
+                  ? report.text.split(/\n{2,}/).filter(Boolean).map(block => {
+                      const lines = block.split("\n");
+                      const isLabel = /^[A-Z][A-Z\s]{3,}$/.test(lines[0]?.trim() || "");
+                      return {
+                        label: isLabel ? lines[0].trim() : "",
+                        body: isLabel ? lines.slice(1).join("\n").trim() : block.trim(),
+                      };
+                    })
+                  : [];
+
+                return (
+                  <div style={{ background: "linear-gradient(145deg,#080e1f,#060b18)", border: "1px solid #1a2550", borderRadius: 18, padding: "18px 18px 14px", marginBottom: 28, position: "relative", overflow: "hidden" }}>
+                    {/* Ambient glow */}
+                    <div style={{ position: "absolute", top: -40, right: -40, width: 140, height: 140, borderRadius: "50%", background: "#2979ff", opacity: 0.05, filter: "blur(40px)", pointerEvents: "none" }} />
+
+                    {/* Header */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: report ? 16 : 12 }}>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 3 }}>
+                          <div style={{ width: 22, height: 22, borderRadius: 6, background: "linear-gradient(135deg,#1a2f6e,#0d1b3e)", border: "1px solid #2979ff44", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11 }}>✦</div>
+                          <span style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>AI Portfolio Advisor</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: "#2a3a6a", paddingLeft: 29 }}>Personal CFO · Weekly intelligence report</div>
+                      </div>
+                      <button
+                        onClick={() => { setMemberAiError(""); generateMemberReport(member); }}
+                        disabled={memberAiLoading}
+                        style={{ background: "linear-gradient(135deg,#101e4a,#080e1f)", border: "1px solid #2979ff33", borderRadius: 10, padding: "8px 14px", fontSize: 11, fontWeight: 700, color: memberAiLoading ? "#444" : "#4d8aff", cursor: memberAiLoading ? "not-allowed" : "pointer", flexShrink: 0, transition: "all 0.15s" }}>
+                        {memberAiLoading ? "Analyzing…" : report ? "↻ Refresh" : "✦ Generate"}
+                      </button>
+                    </div>
+
+                    {/* Error */}
+                    {memberAiError && (
+                      <div style={{ fontSize: 11, color: "#ff6b6b", background: "#1a0808", border: "1px solid #3a1010", borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}>{memberAiError}</div>
+                    )}
+
+                    {/* Report sections */}
+                    {report && sections.length > 0 ? (
+                      <div>
+                        {sections.map((s, i) => {
+                          const color = SECTION_COLORS[s.label] || "#4d8aff";
+                          return (
+                            <div key={i} style={{ borderTop: i === 0 ? "1px solid #0f1730" : "1px solid #0a1020", paddingTop: 12, paddingBottom: i < sections.length - 1 ? 12 : 0 }}>
+                              {s.label && (
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+                                  <div style={{ width: 3, height: 12, borderRadius: 2, background: color, flexShrink: 0 }} />
+                                  <div style={{ fontSize: 9, fontWeight: 800, color, letterSpacing: "0.1em", textTransform: "uppercase" }}>{s.label}</div>
+                                </div>
+                              )}
+                              <div style={{ fontSize: 12, color: "#8899bb", lineHeight: 1.85, paddingLeft: s.label ? 9 : 0 }}>{s.body}</div>
+                            </div>
+                          );
+                        })}
+                        <div style={{ fontSize: 10, color: "#151d35", marginTop: 10, textAlign: "right" }}>Generated {report.date}</div>
+                      </div>
+                    ) : memberAiLoading ? (
+                      <div style={{ textAlign: "center", padding: "24px 0" }}>
+                        <div style={{ fontSize: 11, color: "#2a3a6a" }}>Analyzing {member.name.split(" ")[0]}'s portfolio…</div>
+                        <div style={{ display: "flex", justifyContent: "center", gap: 4, marginTop: 10 }}>
+                          {[0, 1, 2].map(n => (
+                            <div key={n} style={{ width: 5, height: 5, borderRadius: "50%", background: "#2979ff", opacity: 0.4, animation: `pulse ${1 + n * 0.2}s ease-in-out infinite` }} />
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ textAlign: "center", padding: "20px 0 6px" }}>
+                        <div style={{ fontSize: 24, marginBottom: 10 }}>📊</div>
+                        <div style={{ fontSize: 12, color: "#1e2a4a", lineHeight: 1.7 }}>
+                          Generate a personalized AI analysis of {member.name.split(" ")[0]}'s portfolio — allocation health, tax flags, and one recommended action.
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Floating Add Transaction button — pre-fills this member */}
@@ -5070,69 +5895,116 @@ export default function CryptoApp() {
                   {notifStatus === "requesting" ? "Requesting…" : notifStatus === "subscribed" ? "Disable Notifications" : "Enable Notifications"}
                 </button>
               )}
+              {notifStatus === "subscribed" && (() => {
+                const NOTIF_TYPES = [
+                  { key: "dailyChange",    label: "Daily Portfolio Change",  desc: "Nightly summary of your total value & 24h change" },
+                  { key: "btcAlert",       label: "BTC Price Alerts",        desc: "Alert when BTC moves ±5% in a day" },
+                  { key: "goalMilestone",  label: "Goal Milestone Reached",  desc: "Notify when you hit your BTC accumulation goal" },
+                  { key: "newATH",         label: "New All-Time High",       desc: "Alert when your portfolio hits a new ATH" },
+                  { key: "taxFlag",        label: "Tax Flag Detected",       desc: "Alert when a short-term gain or wash-sale risk is found" },
+                ];
+                const toggle = (key) => {
+                  const next = { ...notifPrefs, [key]: !notifPrefs[key] };
+                  setNotifPrefs(next);
+                  fsUpdate("settings", "app", { notifPrefs: next }).catch(console.warn);
+                };
+                return (
+                  <div style={{ marginTop: 14, borderTop: "1px solid #1a3a1a", paddingTop: 12 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#556655", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>Alert Types</div>
+                    {NOTIF_TYPES.map(nt => (
+                      <div key={nt.key} onClick={() => toggle(nt.key)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid #142014", cursor: "pointer" }}>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: "#ccc", marginBottom: 2 }}>{nt.label}</div>
+                          <div style={{ fontSize: 10, color: "#556" }}>{nt.desc}</div>
+                        </div>
+                        <div style={{
+                          width: 36, height: 20, borderRadius: 10, flexShrink: 0, marginLeft: 12,
+                          background: notifPrefs[nt.key] ? "#00e676" : "#222",
+                          border: `1px solid ${notifPrefs[nt.key] ? "#00e676" : "#333"}`,
+                          position: "relative", transition: "background 0.2s",
+                        }}>
+                          <div style={{
+                            position: "absolute", top: 2, left: notifPrefs[nt.key] ? 18 : 2,
+                            width: 14, height: 14, borderRadius: "50%",
+                            background: notifPrefs[nt.key] ? "#000" : "#555",
+                            transition: "left 0.2s",
+                          }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
               {notifMsg && <div style={{ fontSize: 11, color: "#777", marginTop: 8 }}>{notifMsg}</div>}
             </div>
 
             <div style={{ background: "#0d0d14", border: "1px solid #2a2a4a", borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "#7b6ef6", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Anthropic API Key</div>
-              <div style={{ fontSize: 11, color: "#555", marginBottom: 10, lineHeight: 1.5 }}>Used for AI tax analysis in the Tax Reporting page. Synced across devices via Firestore.</div>
+              <div style={{ fontSize: 11, color: "#555", marginBottom: 10, lineHeight: 1.5 }}>Used for AI tax analysis in the Tax Reporting page. Encrypted on-device before sync — unreadable in Firebase without this device's key.</div>
               <input
                 type="password"
                 value={anthropicKey}
-                onChange={e => { setAnthropicKey(e.target.value); localStorage.setItem("anthropic_key", e.target.value); setAnthropicSyncStatus(""); }}
+                onChange={e => { setAnthropicKey(e.target.value); setAnthropicSyncStatus(""); }}
                 placeholder="sk-ant-api03-..."
                 style={{ width: "100%", background: "#111", border: "1px solid #2a2a4a", borderRadius: 8, color: "#ccc", fontSize: 12, padding: "10px 12px", boxSizing: "border-box", outline: "none", fontFamily: "monospace" }}
               />
               <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
                 <button
                   disabled={!anthropicKey || anthropicSyncStatus === "saving"}
-                  onClick={() => {
+                  onClick={async () => {
                     setAnthropicSyncStatus("saving");
-                    fsUpdate("settings", "app", { anthropicKey })
-                      .then(() => { setAnthropicSyncStatus("saved"); setTimeout(() => setAnthropicSyncStatus(""), 3000); })
-                      .catch(() => setAnthropicSyncStatus("error"));
+                    try {
+                      const enc = await encryptApiKey(anthropicKey);
+                      localStorage.setItem("anthropic_key_enc", enc);
+                      await fsUpdate("settings", "app", { anthropicKey: enc });
+                      setAnthropicSyncStatus("saved");
+                      setTimeout(() => setAnthropicSyncStatus(""), 3000);
+                    } catch { setAnthropicSyncStatus("error"); }
                   }}
                   style={{ background: anthropicSyncStatus === "saved" ? "#00c853" : anthropicSyncStatus === "error" ? "#ff4444" : "#7b6ef6", border: "none", borderRadius: 7, color: "#fff", fontSize: 11, fontWeight: 700, padding: "6px 14px", cursor: anthropicKey ? "pointer" : "not-allowed", opacity: anthropicKey ? 1 : 0.4 }}>
-                  {anthropicSyncStatus === "saving" ? "Saving..." : anthropicSyncStatus === "saved" ? "Saved ✓" : anthropicSyncStatus === "error" ? "Error ✗" : "Save & Sync"}
+                  {anthropicSyncStatus === "saving" ? "Encrypting..." : anthropicSyncStatus === "saved" ? "Saved ✓" : anthropicSyncStatus === "error" ? "Error ✗" : "Save & Sync"}
                 </button>
                 {anthropicKey && (
-                  <button onClick={() => { setAnthropicKey(""); localStorage.removeItem("anthropic_key"); fsUpdate("settings","app",{anthropicKey:""}).catch(console.warn); setAnthropicSyncStatus(""); }}
+                  <button onClick={() => { setAnthropicKey(""); localStorage.removeItem("anthropic_key_enc"); fsUpdate("settings","app",{anthropicKey:""}).catch(console.warn); setAnthropicSyncStatus(""); }}
                     style={{ background: "none", border: "1px solid #333", borderRadius: 7, color: "#555", fontSize: 11, padding: "6px 12px", cursor: "pointer" }}>
                     Clear
                   </button>
                 )}
               </div>
-              {anthropicKey && anthropicSyncStatus === "" && <div style={{ fontSize: 11, color: "#555", marginTop: 6 }}>Key entered — press Save & Sync to share across devices</div>}
+              {anthropicKey && anthropicSyncStatus === "" && <div style={{ fontSize: 11, color: "#555", marginTop: 6 }}>Key entered — press Save & Sync to encrypt and store</div>}
             </div>
             <div style={{ background: "#0d1414", border: "1px solid #1a3a2a", borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "#00e676", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>CoinMarketCap API Key</div>
-              <div style={{ fontSize: 11, color: "#555", marginBottom: 10, lineHeight: 1.5 }}>Used for live price data. Synced across all devices via Firestore — never sent anywhere except directly to CoinMarketCap's API.</div>
+              <div style={{ fontSize: 11, color: "#555", marginBottom: 10, lineHeight: 1.5 }}>Used for live price data. Encrypted on-device before sync — stored as ciphertext in Firebase, readable only on this device.</div>
               <input
                 type="text"
                 value={cmcKey}
-                onChange={e => { const k = e.target.value; setCmcKey(k); localStorage.setItem("cmc_key", k); }}
+                onChange={e => { setCmcKey(e.target.value); setCmcSyncStatus(""); }}
                 placeholder="Enter CoinMarketCap API key..."
                 style={{ width: "100%", background: "#111", border: "1px solid #1a3a2a", borderRadius: 8, color: "#ccc", fontSize: 12, padding: "10px 12px", boxSizing: "border-box", outline: "none", fontFamily: "monospace" }}
               />
               {cmcKey
                 ? <div style={{ fontSize: 11, color: priceStatus === "live" ? "#00e676" : priceStatus === "error" ? "#ff4444" : "#f7931a", marginTop: 6 }}>
-                    {priceStatus === "live" ? `✓ Live prices active` : priceStatus === "loading" ? "⟳ Fetching prices..." : priceStatus === "error" ? "✗ API error — check key" : `Key entered — save to sync`}
+                    {priceStatus === "live" ? `✓ Live prices active` : priceStatus === "loading" ? "⟳ Fetching prices..." : priceStatus === "error" ? "✗ API error — check key" : `Key entered — press Save & Sync to encrypt and store`}
                   </div>
                 : <div style={{ fontSize: 11, color: "#555", marginTop: 6 }}>No key set. Get one at coinmarketcap.com/api</div>}
               <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
                 <button
                   disabled={!cmcKey || cmcSyncStatus === "saving"}
-                  onClick={() => {
+                  onClick={async () => {
                     setCmcSyncStatus("saving");
-                    fsUpdate("settings", "app", { cmcKey })
-                      .then(() => { setCmcSyncStatus("saved"); setTimeout(() => setCmcSyncStatus(""), 3000); })
-                      .catch(err => { console.warn("Sync failed:", err.message); setCmcSyncStatus("error:" + err.message); });
+                    try {
+                      const enc = await encryptApiKey(cmcKey);
+                      localStorage.setItem("cmc_key_enc", enc);
+                      await fsUpdate("settings", "app", { cmcKey: enc });
+                      setCmcSyncStatus("saved"); setTimeout(() => setCmcSyncStatus(""), 3000);
+                    } catch (err) { console.warn("Sync failed:", err.message); setCmcSyncStatus("error:" + err.message); }
                   }}
                   style={{ background: cmcSyncStatus.startsWith("saved") ? "#00c853" : cmcSyncStatus.startsWith("error") ? "#ff4444" : "#00e676", border: "none", borderRadius: 7, color: "#000", fontSize: 11, fontWeight: 700, padding: "6px 14px", cursor: cmcKey ? "pointer" : "not-allowed", opacity: cmcKey ? 1 : 0.4 }}>
-                  {cmcSyncStatus === "saving" ? "Saving..." : cmcSyncStatus.startsWith("saved") ? "Saved ✓" : cmcSyncStatus.startsWith("error") ? "Error ✗" : "Save & Sync"}
+                  {cmcSyncStatus === "saving" ? "Encrypting..." : cmcSyncStatus.startsWith("saved") ? "Saved ✓" : cmcSyncStatus.startsWith("error") ? "Error ✗" : "Save & Sync"}
                 </button>
                 {cmcKey && (
-                  <button onClick={() => { setCmcKey(""); localStorage.removeItem("cmc_key"); setCmcSyncStatus(""); fsUpdate("settings", "app", { cmcKey: "" }).catch(console.warn); }}
+                  <button onClick={() => { setCmcKey(""); localStorage.removeItem("cmc_key_enc"); setCmcSyncStatus(""); fsUpdate("settings", "app", { cmcKey: "" }).catch(console.warn); }}
                     style={{ background: "none", border: "1px solid #333", borderRadius: 7, color: "#555", fontSize: 11, padding: "6px 14px", cursor: "pointer" }}>
                     Clear
                   </button>
@@ -5684,7 +6556,166 @@ ${inheritanceAiSummary?`<h2>AI Executive Summary</h2><div class="ai">${inheritan
                 }
                 {inheritanceAiLoading && <div style={{ fontSize: 11, color: "#444", textAlign: "center", padding: "20px 0" }}>Generating summary…</div>}
               </div>
+
+            {/* ── GENERATIONAL WEALTH SIMULATOR ── */}
+            {(() => {
+              const SCENARIOS = [
+                { label: "Today",  price: BTC_PRICE,   sub: "current" },
+                { label: "$250K",  price: 250000,       sub: "conservative" },
+                { label: "$500K",  price: 500000,       sub: "base case" },
+                { label: "$1M",    price: 1000000,      sub: "bull case" },
+                { label: "$5M",    price: 5000000,      sub: "hyperbitcoinization" },
+              ];
+
+              // BTC qty per beneficiary: inherited + their own holdings
+              const jBtcQty   = jorgeHoldings.BTC || 0;
+              // Non-BTC value of Jorge's estate at current prices (alts kept constant in projection)
+              const estateNonBtcUSD = totalEstateUSD - jBtcQty * BTC_PRICE;
+
+              // For each member: total BTC they'd hold (inherited from Jorge + own)
+              const simBens = beneficiaryTotals.map(b => {
+                const inheritedBtcItem = b.inheritedCoins.find(c => c.coin === "BTC");
+                const inheritedBtcQty  = inheritedBtcItem?.qty || 0;
+                const inheritedNonBtc  = b.inheritedCoins.filter(c => c.coin !== "BTC").reduce((s, c) => s + c.usd, 0);
+                const ownBtcQty        = b.holdings?.BTC || 0;
+                const ownNonBtcUSD     = Object.entries(b.holdings || {})
+                  .filter(([c]) => c !== "BTC").reduce((s, [c, q]) => s + q * (COIN_PRICES[c] || 0), 0);
+                return { ...b, inheritedBtcQty, inheritedNonBtc, ownBtcQty, ownNonBtcUSD };
+              });
+
+              const sim = (price) => {
+                const estateUSD = jBtcQty * price + estateNonBtcUSD;
+                const familyBtcUSD = totalBTC * price;
+                const bens = simBens.map(b => {
+                  const inherited = b.inheritedBtcQty * price + b.inheritedNonBtc;
+                  const own       = b.ownBtcQty * price + b.ownNonBtcUSD;
+                  return { ...b, inherited, own, total: inherited + own };
+                });
+                return { estateUSD, familyBtcUSD, bens };
+              };
+
+              const current = sim(BTC_PRICE);
+              const active  = sim(simBtcPrice);
+              const multiplier = BTC_PRICE > 0 ? (simBtcPrice / BTC_PRICE) : 1;
+              const fmtM = n => n >= 1e9 ? `$${(n/1e9).toFixed(2)}B` : n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : fmt(n);
+
+              return (
+                <div style={{ padding: "0 18px 24px" }}>
+                  <div style={{ borderTop: "1px solid #141414", paddingTop: 20, marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Generational Wealth Simulator</div>
+                    <div style={{ fontSize: 12, color: "#444" }}>Project estate value at future BTC prices</div>
+                  </div>
+
+                  {/* Scenario tabs */}
+                  <div style={{ display: "flex", gap: 5, marginBottom: 14, overflowX: "auto" }} className="nobar">
+                    {SCENARIOS.map(s => (
+                      <button key={s.label} onClick={() => setSimBtcPrice(s.price)}
+                        style={{ flexShrink: 0, background: simBtcPrice === s.price ? "#f7931a" : "#111", border: `1px solid ${simBtcPrice === s.price ? "#f7931a" : "#1e1e1e"}`, borderRadius: 10, padding: "7px 12px", cursor: "pointer", textAlign: "center" }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: simBtcPrice === s.price ? "#000" : "#888" }}>{s.label}</div>
+                        <div style={{ fontSize: 9, color: simBtcPrice === s.price ? "#00000099" : "#444", marginTop: 1 }}>{s.sub}</div>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Hero estate card */}
+                  <div style={{ background: "linear-gradient(135deg,#0f0a00,#1a1000)", border: "1px solid #3a2800", borderRadius: 16, padding: "18px 18px 14px", marginBottom: 10, position: "relative", overflow: "hidden" }}>
+                    <div style={{ position: "absolute", top: -30, right: -30, width: 120, height: 120, borderRadius: "50%", background: "#f7931a", opacity: 0.07, filter: "blur(30px)", pointerEvents: "none" }} />
+                    <div style={{ fontSize: 11, color: "#665522", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                      Family Estate at {simBtcPrice === BTC_PRICE ? "Today's Price" : `$${(simBtcPrice/1000).toFixed(0)}K BTC`}
+                    </div>
+                    <div style={{ fontSize: 36, fontWeight: 800, color: "#fff", letterSpacing: "-0.03em", marginBottom: 4 }}>{fmtM(active.estateUSD)}</div>
+                    {simBtcPrice !== BTC_PRICE && (
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#f7931a", marginBottom: 10 }}>
+                        +{fmtM(active.estateUSD - current.estateUSD)} vs today · {multiplier.toFixed(1)}× multiplier
+                      </div>
+                    )}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, paddingTop: 12, borderTop: "1px solid #2a1800" }}>
+                      {[
+                        { lbl: "Family BTC",   val: `${totalBTC.toFixed(4)} BTC` },
+                        { lbl: "BTC Value",     val: fmtM(totalBTC * simBtcPrice) },
+                        { lbl: "Jorge's Estate",val: fmtM(active.estateUSD) },
+                      ].map(s => (
+                        <div key={s.lbl} style={{ textAlign: "center", background: "#0a0800", borderRadius: 8, padding: "8px 4px" }}>
+                          <div style={{ fontSize: 9, color: "#554422", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>{s.lbl}</div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: "#f7931a" }}>{s.val}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Scenario comparison table */}
+                  <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "14px 16px", marginBottom: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#888", marginBottom: 10 }}>Estate Value Across Scenarios</div>
+                    {SCENARIOS.map(s => {
+                      const sv = sim(s.price);
+                      const isSelected = s.price === simBtcPrice;
+                      const isToday = s.price === BTC_PRICE;
+                      return (
+                        <div key={s.label} onClick={() => setSimBtcPrice(s.price)}
+                          style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 10px", borderRadius: 8, marginBottom: 4, cursor: "pointer", background: isSelected ? "#1a1000" : "transparent", border: `1px solid ${isSelected ? "#3a2800" : "transparent"}` }}>
+                          <div>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: isSelected ? "#f7931a" : "#666" }}>{s.label}</span>
+                            {!isToday && <span style={{ fontSize: 10, color: "#333", marginLeft: 6 }}>{(s.price / BTC_PRICE).toFixed(1)}×</span>}
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: isSelected ? "#fff" : "#555" }}>{fmtM(sv.estateUSD)}</div>
+                            {!isToday && <div style={{ fontSize: 10, color: "#f7931a44" }}>+{fmtM(sv.estateUSD - current.estateUSD)}</div>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Per-beneficiary breakdown */}
+                  {active.bens.some(b => b.inherited > 0) && (
+                    <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "14px 16px", marginBottom: 10 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#888", marginBottom: 3 }}>
+                        Beneficiary Projections at {simBtcPrice === BTC_PRICE ? "Today's Price" : `$${(simBtcPrice/1000).toFixed(0)}K BTC`}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#333", marginBottom: 12 }}>Inherited estate + own holdings</div>
+                      {active.bens.filter(b => b.inherited > 0 || b.own > 0).map((b, i) => {
+                        const barMax = Math.max(...active.bens.map(x => x.total), 1);
+                        return (
+                          <div key={b.id} style={{ marginBottom: i < active.bens.length - 1 ? 12 : 0 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <div style={{ width: 26, height: 26, borderRadius: 7, background: "#1a1a1a", border: `1px solid ${b.color}44`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: b.color, fontWeight: 700 }}>{b.avatar}</div>
+                                <span style={{ fontSize: 13, fontWeight: 600, color: "#ccc" }}>{b.name.split(" ")[0]}</span>
+                              </div>
+                              <div style={{ textAlign: "right" }}>
+                                <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>{fmtM(b.total)}</div>
+                                {b.inherited > 0 && <div style={{ fontSize: 10, color: b.color }}>{fmtM(b.inherited)} estate</div>}
+                              </div>
+                            </div>
+                            {/* Stacked bar: inherited (accent) + own (dim) */}
+                            <div style={{ height: 6, background: "#1a1a1a", borderRadius: 3, overflow: "hidden", display: "flex" }}>
+                              <div style={{ height: "100%", width: `${b.total / barMax * 100}%`, background: b.color, borderRadius: 3, opacity: 0.85 }} />
+                            </div>
+                            {b.inheritedBtcQty > 0 && (
+                              <div style={{ fontSize: 10, color: "#444", marginTop: 3 }}>
+                                Inherits {b.inheritedBtcQty.toFixed(5)} BTC
+                                {b.ownBtcQty > 0 ? ` + owns ${b.ownBtcQty.toFixed(5)} BTC` : ""}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Multi-generation note */}
+                  <div style={{ background: "#0a0a0f", border: "1px solid #1a1a2a", borderRadius: 12, padding: "12px 14px" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#3a3a5a", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Generational Note</div>
+                    <div style={{ fontSize: 11, color: "#3a3a5a", lineHeight: 1.7 }}>
+                      If this BTC is never sold and held by the next generation, a single Bitcoin reaching $1M would make every beneficiary a millionaire. At $5M per BTC, this family's stack becomes a {fmtM(totalBTC * 5000000)} generational trust.
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             </div>
+
           );
         })()}
 
