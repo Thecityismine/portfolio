@@ -1968,7 +1968,7 @@ export default function CryptoApp() {
     if (!FS_BASE) return;
     fsGetAll("settings").then(docs => {
       const app = docs.find(d => d.id === "app");
-      if (!app) return;
+      if (!app) { fsSet("settings", "app", {}).catch(console.warn); return; }
       // CMC key
       if (app.cmcKey && app.cmcKey !== localStorage.getItem("cmc_key")) {
         setCmcKey(app.cmcKey);
@@ -2027,6 +2027,53 @@ export default function CryptoApp() {
   const [coinPage, setCoinPage] = useState("detail");        // "detail" | "transactions"
   const [txOptionsOpen, setTxOptionsOpen] = useState(null);  // tx.id for 3-dot menu
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notifStatus, setNotifStatus] = useState("idle"); // idle | requesting | subscribed | denied | unsupported
+  const [notifMsg, setNotifMsg] = useState("");
+
+  // Register service worker + check existing subscription on mount
+  useEffect(() => {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      setNotifStatus("unsupported"); return;
+    }
+    navigator.serviceWorker.register("/sw.js").then(reg => {
+      reg.pushManager.getSubscription().then(sub => {
+        setNotifStatus(sub ? "subscribed" : (Notification.permission === "denied" ? "denied" : "idle"));
+      });
+    }).catch(() => setNotifStatus("unsupported"));
+  }, []);
+
+  async function enableNotifications() {
+    setNotifStatus("requesting"); setNotifMsg("");
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") { setNotifStatus("denied"); setNotifMsg("Notification permission denied."); return; }
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: import.meta.env.VITE_VAPID_PUBLIC_KEY,
+      });
+      await fetch("/api/push-subscribe", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscription: sub }),
+      });
+      setNotifStatus("subscribed"); setNotifMsg("You'll get a nightly update at 8pm ET.");
+    } catch (e) { setNotifStatus("idle"); setNotifMsg("Failed: " + e.message); }
+  }
+
+  async function disableNotifications() {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await fetch("/api/push-subscribe", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subscription: sub, action: "unsubscribe" }),
+        });
+        await sub.unsubscribe();
+      }
+    } catch (e) { /* silent */ }
+    setNotifStatus("idle"); setNotifMsg("Notifications disabled.");
+  }
   const [menuSort, setMenuSort] = useState("btc"); // "btc" | "value" | "name" | "performance"
   const [btcGoal, setBtcGoal] = useState(5.0);
   const [editingGoal, setEditingGoal] = useState(false);
@@ -2501,15 +2548,26 @@ export default function CryptoApp() {
   }
 
   // Computed chart data from real snapshots (falls back to synthetic when < 2 real points)
-  const familyChartData =
-    snapshotsToChart(snapshots, homeChartRange, s => s.totalUSD) ||
-    generateChartData(totalUSD || 341000, homeChartRange);
+  // Always force the last point to the current live totalUSD so the chart endpoint matches the header value
+  const familyChartData = (() => {
+    const data = snapshotsToChart(snapshots, homeChartRange, s => s.totalUSD) ||
+      generateChartData(totalUSD || 341000, homeChartRange);
+    if (data && data.length > 0 && totalUSD > 0) {
+      data[data.length - 1] = { ...data[data.length - 1], v: Math.round(totalUSD * 100) / 100 };
+    }
+    return data;
+  })();
 
   const member = selectedMember ? MEMBERS.find(m => m.id === selectedMember) : null;
-  const memberChart = member
-    ? (snapshotsToChart(snapshots, memberChartRange, s => s.members?.[member.id] ?? 0) ||
-       generateChartData(member.usd))
-    : [];
+  const memberChart = (() => {
+    if (!member) return [];
+    const data = snapshotsToChart(snapshots, memberChartRange, s => s.members?.[member.id] ?? 0) ||
+      generateChartData(member.usd);
+    if (data && data.length > 0 && member.usd > 0) {
+      data[data.length - 1] = { ...data[data.length - 1], v: Math.round(member.usd * 100) / 100 };
+    }
+    return data;
+  })();
   const memberTxs = TRANSACTIONS.filter(t => t.member === member?.id);
   const filteredTxs = (txFilter === "all" ? TRANSACTIONS : TRANSACTIONS.filter(t => t.member === txFilter))
     .slice().sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -2596,6 +2654,8 @@ export default function CryptoApp() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { background: #080808; width: 100%; height: 100%; overflow: hidden; }
+        #root { background: #080808; width: 100%; height: 100%; }
         ::-webkit-scrollbar { width: 2px; }
         ::-webkit-scrollbar-track { background: #0a0a0a; }
         ::-webkit-scrollbar-thumb { background: #222; }
@@ -2676,7 +2736,16 @@ export default function CryptoApp() {
         @keyframes slideUp { from { transform: translateX(-50%) translateY(100%); } to { transform: translateX(-50%) translateY(0); } }
 
         /* ── RESPONSIVE SHELL ─────────────────────────────────── */
-        .app-shell { display: flex; height: 100dvh; height: 100vh; max-height: -webkit-fill-available; overflow: hidden; }
+        .app-shell {
+          display: flex;
+          width: 100vw;
+          height: 100dvh;
+          height: 100vh;
+          height: -webkit-fill-available;
+          max-height: -webkit-fill-available;
+          overflow: hidden;
+          background: #080808;
+        }
 
         /* Sidebar: always in DOM; hidden off-screen on mobile */
         .sidebar {
@@ -2732,18 +2801,6 @@ export default function CryptoApp() {
                   <div style={{ fontSize: 16, fontWeight: 700, color: "#fff" }}>Medina Family</div>
                 </div>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                {[
-                  { label: "Total Value", value: fmt(totalUSD), color: "#fff" },
-                  { label: "Total BTC", value: `${totalBTC.toFixed(4)}`, color: "#f7931a" },
-                  { label: "BTC Price", value: `$${(BTC_PRICE/1000).toFixed(1)}K`, color: "#00e676" },
-                ].map(s => (
-                  <div key={s.label} style={{ background: "#141414", borderRadius: 8, padding: "8px 10px" }}>
-                    <div style={{ fontSize: 10, color: "#555", marginBottom: 2 }}>{s.label}</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: s.color }}>{s.value}</div>
-                  </div>
-                ))}
-              </div>
             </div>
 
             {/* ── QUICK ACTIONS ── */}
@@ -2751,8 +2808,6 @@ export default function CryptoApp() {
               <div style={{ display: "flex", gap: 8 }}>
                 {[
                   { label: "Add Tx", icon: "＋", action: () => { setMenuOpen(false); setAddTxOpen(true); } },
-                  { label: "Transfer", icon: "⇄", action: () => setMenuOpen(false) },
-                  { label: "Rebalance", icon: "⚖", action: () => setMenuOpen(false) },
                 ].map(q => (
                   <button key={q.label} onClick={q.action} style={{ flex: 1, background: "#141414", border: "1px solid #222", borderRadius: 10, padding: "9px 6px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
                     <span style={{ fontSize: 16, color: "#00e676" }}>{q.icon}</span>
@@ -2769,8 +2824,18 @@ export default function CryptoApp() {
                   section: "Portfolio",
                   items: [
                     { label: "New Portfolio", sub: "Add a family member", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9.5" y1="14.5" x2="14.5" y2="14.5"/></svg>, action: () => { setNewMemberForm({ name: "", avatar: "", exchange: "" }); setAddMemberOpen(true); setMenuOpen(false); } },
-                    { label: "Manage Assets", sub: "Coins & holdings", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="6"/><ellipse cx="12" cy="17" rx="8" ry="3"/><path d="M4 17v3c0 1.66 3.58 3 8 3s8-1.34 8-3v-3"/></svg>, action: () => { setPage("portfolios"); setMenuOpen(false); } },
-                    { label: "Set Goals", sub: "BTC targets per member", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/></svg>, action: () => { setPage("home"); setMenuOpen(false); } },
+                  ]
+                },
+                {
+                  section: "Estate",
+                  items: [
+                    { label: "Inheritance", sub: "Allocation & estate plan", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>, action: () => { setPage("inheritance"); setMenuOpen(false); } },
+                  ]
+                },
+                {
+                  section: "Tax",
+                  items: [
+                    { label: "Tax Reporting", sub: "2025 · FIFO · CoinTracking", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>, badge: "BETA", badgeColor: "#f7931a", action: () => { setPage("tax"); setMenuOpen(false); } },
                   ]
                 },
                 {
@@ -2785,18 +2850,6 @@ export default function CryptoApp() {
                   items: [
                     { label: "CoinMarketCap API", sub: "Live price feed", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11A2.99 2.99 0 0 0 18 7.92a3 3 0 1 0-3-3c0 .24.04.47.09.7L8.04 9.73A3 3 0 0 0 6 9a3 3 0 0 0 0 6c.78 0 1.49-.31 2.04-.78l7.05 4.12c-.05.21-.09.43-.09.66a3 3 0 1 0 3-3z"/></svg>, badge: cmcKey ? "Connected" : "Not connected", badgeColor: cmcKey ? "#00e676" : "#f7931a", action: () => { setPage("app-settings"); setMenuOpen(false); } },
                     { label: "Exchange Sync", sub: "Coinbase · Kraken · Gemini", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>, badge: "Manual", badgeColor: "#555", action: () => { setPage("app-settings"); setMenuOpen(false); } },
-                  ]
-                },
-                {
-                  section: "Tax",
-                  items: [
-                    { label: "Tax Reporting", sub: "2025 · FIFO · CoinTracking", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>, badge: "BETA", badgeColor: "#f7931a", action: () => { setPage("tax"); setMenuOpen(false); } },
-                  ]
-                },
-                {
-                  section: "Estate",
-                  items: [
-                    { label: "Inheritance", sub: "Allocation & estate plan", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>, action: () => { setPage("inheritance"); setMenuOpen(false); } },
                   ]
                 },
                 {
@@ -2924,7 +2977,7 @@ export default function CryptoApp() {
 
               {/* Mode tabs */}
               <div style={{ display: "flex", gap: 6, marginBottom: 18, background: "#111", borderRadius: 10, padding: 4 }}>
-                {[["trade", "⬆⬇ Buy / Sell"], ["transfer", "↔ Transfer"]].map(([mode, label]) => (
+                {[["trade", "Buy / Sell"], ["transfer", "↔ Transfer"]].map(([mode, label]) => (
                   <button key={mode} onClick={() => { setTxModalMode(mode); setTxFormError(""); setTransferError(""); }}
                     style={{ flex: 1, padding: "8px", borderRadius: 8, border: "none", fontWeight: 600, fontSize: 13, cursor: "pointer",
                       background: txModalMode === mode ? "#1e1e1e" : "transparent",
@@ -3389,7 +3442,7 @@ export default function CryptoApp() {
       })()}
 
       {/* TOP BAR */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px 10px", position: "sticky", top: 0, background: "#080808", zIndex: 50, borderBottom: "1px solid #141414" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "calc(14px + env(safe-area-inset-top))", paddingBottom: 10, paddingLeft: 18, paddingRight: 18, position: "sticky", top: 0, background: "#080808", zIndex: 50, borderBottom: "1px solid #141414" }}>
         <button className="hamburger-btn" style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", flexDirection: "column", gap: 5 }} onClick={() => setMenuOpen(true)}>
           <div style={{ width: 20, height: 2, background: "#fff" }} />
           <div style={{ width: 14, height: 2, background: "#fff" }} />
@@ -3578,7 +3631,7 @@ export default function CryptoApp() {
                       </linearGradient>
                     </defs>
                     <XAxis dataKey="label" hide />
-                    <YAxis hide />
+                    <YAxis hide domain={[dataMin => Math.floor(dataMin * 0.92), "auto"]} />
                     <Tooltip
                       contentStyle={{ background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 8, fontSize: 12, fontFamily: "'Inter',sans-serif", padding: "6px 10px" }}
                       labelStyle={{ color: "#888", fontSize: 11, marginBottom: 2 }}
@@ -3681,7 +3734,7 @@ export default function CryptoApp() {
                               onKeyDown={e => {
                                 if (e.key === "Enter") {
                                   const v = parseFloat(goalInput);
-                                  if (!isNaN(v) && v > 0) { setBtcGoal(v); fsSet("settings","app",{btcGoal:v}).catch(console.warn); }
+                                  if (!isNaN(v) && v > 0) { setBtcGoal(v); fsUpdate("settings","app",{btcGoal:v}).catch(console.warn); }
                                   setEditingGoal(false);
                                 }
                                 if (e.key === "Escape") setEditingGoal(false);
@@ -3695,7 +3748,7 @@ export default function CryptoApp() {
                             <button
                               onClick={() => {
                                 const v = parseFloat(goalInput);
-                                if (!isNaN(v) && v > 0) { setBtcGoal(v); fsSet("settings","app",{btcGoal:v}).catch(console.warn); }
+                                if (!isNaN(v) && v > 0) { setBtcGoal(v); fsUpdate("settings","app",{btcGoal:v}).catch(console.warn); }
                                 setEditingGoal(false);
                               }}
                               style={{ background: "#f7931a", border: "none", borderRadius: 6, padding: "4px 10px", color: "#000", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
@@ -3926,7 +3979,7 @@ export default function CryptoApp() {
                             </linearGradient>
                           </defs>
                           <XAxis dataKey="label" hide />
-                          <YAxis hide />
+                          <YAxis hide domain={[dataMin => Math.floor(dataMin * 0.92), "auto"]} />
                           <Tooltip
                             contentStyle={{ background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 8, fontSize: 12, fontFamily: "'Inter',sans-serif", padding: "6px 10px" }}
                             labelStyle={{ color: "#888", fontSize: 11, marginBottom: 2 }}
@@ -4109,6 +4162,7 @@ export default function CryptoApp() {
               <div style={{ fontSize: 13, fontWeight: 500, color: "#666", marginBottom: 10 }}>Holdings</div>
               <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden", marginBottom: 24 }}>
                 {Object.entries(member.holdings || {})
+                  .filter(([coin, qty]) => qty * (COIN_PRICES[coin] || 0) > 0.01)
                   .sort(([ca, qa], [cb, qb]) => (qb * (COIN_PRICES[cb]||0)) - (qa * (COIN_PRICES[ca]||0)))
                   .map(([coin, qty], idx, arr) => {
                     const price = COIN_PRICES[coin] || 0;
@@ -4510,15 +4564,15 @@ export default function CryptoApp() {
               <div style={{ fontSize: 13, fontWeight: 500, color: "#666", marginBottom: 10 }}>Balance History</div>
               <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "12px 8px 8px" }}>
                 <ResponsiveContainer width="100%" height={130}>
-                  <AreaChart data={snapshotsToChart(snapshots, "ALL", s => s.totalUSD) || generateChartData(totalUSD, "ALL")}>
+                  <AreaChart data={(() => { const d = snapshotsToChart(snapshots, "ALL", s => s.totalUSD) || generateChartData(totalUSD, "ALL"); if (d?.length && totalUSD > 0) d[d.length - 1] = { ...d[d.length - 1], v: Math.round(totalUSD * 100) / 100 }; return d; })()}>
                     <defs>
                       <linearGradient id="iGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="#f7931a" stopOpacity={0.3} />
                         <stop offset="100%" stopColor="#f7931a" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <XAxis hide /><YAxis hide />
-                    <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} itemStyle={TOOLTIP_ITEM_STYLE} formatter={(v) => [fmt(v), ""]} labelFormatter={() => ""} />
+                    <XAxis hide /><YAxis hide domain={[dataMin => Math.floor(dataMin * 0.92), "auto"]} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} itemStyle={{ color: "#f7931a" }} formatter={(v) => [fmtFull(v), "Value"]} labelFormatter={(_, p) => p?.[0]?.payload?.label || ""} />
                     <Area type="monotone" dataKey="v" stroke="#f7931a" strokeWidth={2.5} fill="url(#iGrad)" dot={false} />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -4552,7 +4606,7 @@ export default function CryptoApp() {
                       <BarChart data={chartData} barGap={2} barCategoryGap={10}>
                         <XAxis dataKey="q" tick={{ fontSize: 12, fill: "#555" }} axisLine={false} tickLine={false} />
                         <YAxis hide />
-                        <Tooltip contentStyle={TOOLTIP_STYLE} labelStyle={TOOLTIP_LABEL_STYLE} itemStyle={TOOLTIP_ITEM_STYLE} formatter={(v) => [`${v >= 0 ? "+" : ""}${v}%`, "Return"]} />
+                        <Tooltip cursor={{ fill: "rgba(255,255,255,0.04)" }} content={({ active, payload, label }) => { if (!active || !payload?.length) return null; const val = payload[0]?.value ?? 0; const col = val >= 0 ? "#00e676" : "#ff4444"; return (<div style={TOOLTIP_STYLE}><div style={{ color: "#666", fontSize: 11, marginBottom: 4 }}>{label}</div><div style={{ color: col, fontWeight: 700 }}>{val >= 0 ? "+" : ""}{val}% Return</div></div>); }} />
                         <Bar dataKey="portfolio" radius={2}>
                           {chartData.map((entry, i) => (
                             <Cell key={i} fill={(entry.portfolio ?? 0) >= 0 ? "#00e676" : "#ff4444"} />
@@ -4848,6 +4902,35 @@ export default function CryptoApp() {
               <div className="lbl" style={{ marginBottom: 4 }}>Configuration</div>
               <div style={{ fontSize: 22, fontWeight: 700, color: "#fff", letterSpacing: "-0.02em" }}>App Settings</div>
             </div>
+            {/* Notifications */}
+            <div style={{ background: "#0d140d", border: "1px solid #1a3a1a", borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#00e676", letterSpacing: "0.08em", textTransform: "uppercase" }}>Push Notifications</div>
+                {notifStatus === "subscribed" && <span style={{ fontSize: 10, fontWeight: 700, color: "#00e676", background: "#00e67622", borderRadius: 5, padding: "2px 8px" }}>ON</span>}
+                {notifStatus === "denied" && <span style={{ fontSize: 10, fontWeight: 700, color: "#ff4444", background: "#ff444422", borderRadius: 5, padding: "2px 8px" }}>BLOCKED</span>}
+              </div>
+              <div style={{ fontSize: 11, color: "#555", marginBottom: 12, lineHeight: 1.5 }}>
+                Nightly update at 8pm ET — portfolio total value and daily change.{" "}
+                {notifStatus === "unsupported" && <span style={{ color: "#f7931a" }}>Not supported on this browser. Install as PWA first.</span>}
+                {notifStatus === "denied" && <span style={{ color: "#ff4444" }}>Blocked in browser settings — enable in iOS Settings → Safari → Notifications.</span>}
+              </div>
+              {notifStatus !== "unsupported" && (
+                <button
+                  onClick={notifStatus === "subscribed" ? disableNotifications : enableNotifications}
+                  disabled={notifStatus === "requesting" || notifStatus === "denied"}
+                  style={{
+                    background: notifStatus === "subscribed" ? "#1a1a1a" : "#00e676",
+                    border: notifStatus === "subscribed" ? "1px solid #333" : "none",
+                    borderRadius: 8, color: notifStatus === "subscribed" ? "#555" : "#000",
+                    fontSize: 12, fontWeight: 700, padding: "9px 18px", cursor: "pointer",
+                    opacity: notifStatus === "denied" ? 0.4 : 1,
+                  }}>
+                  {notifStatus === "requesting" ? "Requesting…" : notifStatus === "subscribed" ? "Disable Notifications" : "Enable Notifications"}
+                </button>
+              )}
+              {notifMsg && <div style={{ fontSize: 11, color: "#777", marginTop: 8 }}>{notifMsg}</div>}
+            </div>
+
             <div style={{ background: "#0d0d14", border: "1px solid #2a2a4a", borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "#7b6ef6", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Anthropic API Key</div>
               <div style={{ fontSize: 11, color: "#555", marginBottom: 10, lineHeight: 1.5 }}>Used for AI tax analysis in the Tax Reporting page. Synced across devices via Firestore.</div>
@@ -4863,7 +4946,7 @@ export default function CryptoApp() {
                   disabled={!anthropicKey || anthropicSyncStatus === "saving"}
                   onClick={() => {
                     setAnthropicSyncStatus("saving");
-                    fsSet("settings", "app", { anthropicKey })
+                    fsUpdate("settings", "app", { anthropicKey })
                       .then(() => { setAnthropicSyncStatus("saved"); setTimeout(() => setAnthropicSyncStatus(""), 3000); })
                       .catch(() => setAnthropicSyncStatus("error"));
                   }}
@@ -4871,7 +4954,7 @@ export default function CryptoApp() {
                   {anthropicSyncStatus === "saving" ? "Saving..." : anthropicSyncStatus === "saved" ? "Saved ✓" : anthropicSyncStatus === "error" ? "Error ✗" : "Save & Sync"}
                 </button>
                 {anthropicKey && (
-                  <button onClick={() => { setAnthropicKey(""); localStorage.removeItem("anthropic_key"); fsSet("settings","app",{anthropicKey:""}).catch(console.warn); setAnthropicSyncStatus(""); }}
+                  <button onClick={() => { setAnthropicKey(""); localStorage.removeItem("anthropic_key"); fsUpdate("settings","app",{anthropicKey:""}).catch(console.warn); setAnthropicSyncStatus(""); }}
                     style={{ background: "none", border: "1px solid #333", borderRadius: 7, color: "#555", fontSize: 11, padding: "6px 12px", cursor: "pointer" }}>
                     Clear
                   </button>
@@ -4899,7 +4982,7 @@ export default function CryptoApp() {
                   disabled={!cmcKey || cmcSyncStatus === "saving"}
                   onClick={() => {
                     setCmcSyncStatus("saving");
-                    fsSet("settings", "app", { cmcKey })
+                    fsUpdate("settings", "app", { cmcKey })
                       .then(() => { setCmcSyncStatus("saved"); setTimeout(() => setCmcSyncStatus(""), 3000); })
                       .catch(err => { console.warn("Sync failed:", err.message); setCmcSyncStatus("error:" + err.message); });
                   }}
@@ -4907,7 +4990,7 @@ export default function CryptoApp() {
                   {cmcSyncStatus === "saving" ? "Saving..." : cmcSyncStatus.startsWith("saved") ? "Saved ✓" : cmcSyncStatus.startsWith("error") ? "Error ✗" : "Save & Sync"}
                 </button>
                 {cmcKey && (
-                  <button onClick={() => { setCmcKey(""); localStorage.removeItem("cmc_key"); setCmcSyncStatus(""); fsSet("settings", "app", { cmcKey: "" }).catch(console.warn); }}
+                  <button onClick={() => { setCmcKey(""); localStorage.removeItem("cmc_key"); setCmcSyncStatus(""); fsUpdate("settings", "app", { cmcKey: "" }).catch(console.warn); }}
                     style={{ background: "none", border: "1px solid #333", borderRadius: 7, color: "#555", fontSize: 11, padding: "6px 14px", cursor: "pointer" }}>
                     Clear
                   </button>
@@ -5051,6 +5134,82 @@ export default function CryptoApp() {
             const total = beneficiaries.reduce((s, m) => s + (inheritanceAllocs[g]?.[m.id] || 0), 0);
             return total < 99.9;
           }).map(groupLabel);
+
+          function generateInheritancePDF() {
+            const pieSlices = beneficiaryTotals.filter(b => b.inheritedUSD > 0);
+            const pieTotal = pieSlices.reduce((s, b) => s + b.inheritedUSD, 0);
+            // SVG donut pie chart
+            const CX = 150, CY = 150, R = 110, RI = 65;
+            let piePaths = ""; let startAngle = -Math.PI / 2;
+            pieSlices.forEach(b => {
+              const pct = b.inheritedUSD / pieTotal;
+              const end = startAngle + pct * 2 * Math.PI;
+              const x1o = CX + R * Math.cos(startAngle), y1o = CY + R * Math.sin(startAngle);
+              const x2o = CX + R * Math.cos(end), y2o = CY + R * Math.sin(end);
+              const x1i = CX + RI * Math.cos(end), y1i = CY + RI * Math.sin(end);
+              const x2i = CX + RI * Math.cos(startAngle), y2i = CY + RI * Math.sin(startAngle);
+              const large = pct > 0.5 ? 1 : 0;
+              piePaths += `<path d="M${x1o.toFixed(1)},${y1o.toFixed(1)} A${R},${R} 0 ${large},1 ${x2o.toFixed(1)},${y2o.toFixed(1)} L${x1i.toFixed(1)},${y1i.toFixed(1)} A${RI},${RI} 0 ${large},0 ${x2i.toFixed(1)},${y2i.toFixed(1)} Z" fill="${b.color}" opacity="0.92"/>`;
+              startAngle = end;
+            });
+            const pieLegend = pieSlices.map(b => `<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px"><div style="width:11px;height:11px;border-radius:3px;background:${b.color};flex-shrink:0"></div><span>${b.name.split(" ")[0]}: <strong>${fmtFull(b.inheritedUSD)}</strong> (${(b.inheritedUSD/pieTotal*100).toFixed(1)}%)</span></div>`).join("");
+            // SVG bar chart
+            const barMax = Math.max(...pieSlices.map(b => b.inheritedUSD));
+            const barH = pieSlices.length * 38 + 10;
+            const barPaths = pieSlices.map((b, i) => {
+              const bw = Math.round((b.inheritedUSD / barMax) * 380);
+              const y = i * 38 + 8;
+              return `<g><rect x="110" y="${y}" width="${bw}" height="26" rx="5" fill="${b.color}" opacity="0.85"/><text x="104" y="${y+18}" text-anchor="end" font-size="11" fill="#555">${b.name.split(" ")[0]}</text><text x="${114+bw}" y="${y+18}" font-size="11" fill="${b.color}" font-weight="600">${fmtFull(b.inheritedUSD)}</text></g>`;
+            }).join("");
+            const reportDate = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+            const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Medina Estate Plan — ${reportDate}</title><style>
+*{margin:0;padding:0;box-sizing:border-box}body{font-family:Georgia,serif;color:#111;padding:48px;max-width:820px;margin:0 auto}
+h1{font-size:26px;font-weight:700;color:#111;margin-bottom:4px}
+h2{font-size:12px;font-weight:700;color:#888;margin:28px 0 12px;border-bottom:1px solid #e5e5e5;padding-bottom:6px;letter-spacing:.1em;text-transform:uppercase}
+.subtitle{font-size:12px;color:#888;margin-bottom:28px}.confidential{font-size:10px;color:#bbb;text-align:right}
+.meta{display:flex;gap:0;margin-bottom:28px;border:1px solid #eee;border-radius:10px;overflow:hidden}
+.meta-item{flex:1;text-align:center;padding:16px 8px;border-right:1px solid #eee}.meta-item:last-child{border-right:none}
+.meta-label{font-size:9px;color:#aaa;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px}
+.meta-value{font-size:18px;font-weight:700;color:#111}.meta-value.or{color:#c2620a}
+.charts-row{display:flex;gap:24px;align-items:center;margin-bottom:4px}
+table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:4px}
+th{background:#f7f7f7;padding:7px 10px;text-align:left;font-size:9px;text-transform:uppercase;color:#999;letter-spacing:.06em;font-weight:700;font-family:Arial,sans-serif}
+td{padding:7px 10px;border-bottom:1px solid #f3f3f3;font-family:Arial,sans-serif;font-size:12px}tr:last-child td{border-bottom:none}
+.pill{display:inline-block;background:#f5f5f5;border-radius:4px;padding:1px 6px;font-size:10px;margin:1px;color:#666;font-family:Arial,sans-serif}
+.instructions{background:#fffbf0;border:1px solid #f59e0b;border-left:4px solid #f59e0b;border-radius:6px;padding:16px;font-size:12px;line-height:1.8;white-space:pre-wrap;color:#555;font-family:Arial,sans-serif}
+.ai{font-size:13px;line-height:1.9;color:#333;white-space:pre-wrap;font-family:Arial,sans-serif}
+.disc{margin-top:36px;padding-top:14px;border-top:1px solid #eee;font-size:10px;color:#bbb;line-height:1.6;font-family:Arial,sans-serif}
+@media print{body{padding:32px}@page{margin:1cm}}
+</style></head><body>
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+<div><h1>Medina Family Estate Plan</h1><div class="subtitle">Prepared ${reportDate} &nbsp;·&nbsp; Estate Owner: Jorge Medina &nbsp;·&nbsp; Executor: ${executor?.name || "—"}</div></div>
+<div class="confidential">CONFIDENTIAL<br>For family use only</div></div>
+<div class="meta">
+<div class="meta-item"><div class="meta-label">Total Estate Value</div><div class="meta-value or">${fmtFull(totalEstateUSD)}</div></div>
+<div class="meta-item"><div class="meta-label">Beneficiaries</div><div class="meta-value">${beneficiaries.length}</div></div>
+<div class="meta-item"><div class="meta-label">Executor</div><div class="meta-value" style="font-size:14px">${executor?.name || "—"}</div></div>
+<div class="meta-item"><div class="meta-label">Report Date</div><div class="meta-value" style="font-size:13px">${reportDate}</div></div></div>
+<h2>Estate Holdings — Jorge Medina</h2>
+<table><thead><tr><th>Asset</th><th>Quantity</th><th>Value (USD)</th><th>% of Estate</th></tr></thead><tbody>
+${jorgeCoins.map(c=>`<tr><td style="font-weight:600">${c}</td><td>${(jorgeHoldings[c]||0).toFixed(6)}</td><td style="font-weight:600">${fmtFull((jorgeHoldings[c]||0)*(COIN_PRICES[c]||0))}</td><td>${totalEstateUSD>0?(((jorgeHoldings[c]||0)*(COIN_PRICES[c]||0))/totalEstateUSD*100).toFixed(1)+"%" :"—"}</td></tr>`).join("")}
+${itrustUSD>0?`<tr><td style="font-weight:600">iTrust Capital (Roth IRA)</td><td>—</td><td style="font-weight:600">${fmtFull(itrustUSD)}</td><td>${totalEstateUSD>0?(itrustUSD/totalEstateUSD*100).toFixed(1)+"%":"—"}</td></tr>`:""}
+</tbody></table>
+<h2>Inheritance Allocation</h2>
+<div class="charts-row">
+<div><svg width="300" height="300" viewBox="0 0 300 300">${piePaths}<text x="150" y="145" text-anchor="middle" font-size="11" fill="#999" font-family="Arial,sans-serif">Total Estate</text><text x="150" y="164" text-anchor="middle" font-size="14" font-weight="700" fill="#111" font-family="Georgia,serif">${fmtFull(totalEstateUSD)}</text></svg></div>
+<div style="padding:20px 0;font-size:13px;font-family:Arial,sans-serif">${pieLegend}</div></div>
+<svg width="100%" height="${barH}" viewBox="0 0 520 ${barH}" style="margin:16px 0 24px">${barPaths}</svg>
+<table><thead><tr><th>Beneficiary</th><th>Inherited Assets</th><th>Inherited Value</th><th>Own Holdings</th><th>Combined Total</th></tr></thead><tbody>
+${beneficiaryTotals.map(b=>`<tr><td style="font-weight:700">${b.name}</td><td>${b.inheritedCoins.map(x=>`<span class="pill">${x.coin} ${x.pct}%</span>`).join(" ")}</td><td style="font-weight:700;color:#c2620a">${fmtFull(b.inheritedUSD)}</td><td>${fmtFull(b.ownUSD)}</td><td style="font-weight:700">${fmtFull(b.inheritedUSD+b.ownUSD)}</td></tr>`).join("")}
+</tbody></table>
+${inheritanceInstructions?`<h2>Special Instructions from Estate Owner</h2><div class="instructions">${inheritanceInstructions.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>`:""}
+${inheritanceAiSummary?`<h2>AI Executive Summary</h2><div class="ai">${inheritanceAiSummary.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>`:""}
+<div class="disc">This document was generated by the Medina Family Portfolio Tracker on ${reportDate}. It is for informational and estate planning reference only and does not constitute legal or financial advice. Please consult a qualified estate attorney before making any distribution decisions.</div>
+</body></html>`;
+            const win = window.open("", "_blank", "width=900,height=720");
+            win.document.write(html); win.document.close(); win.focus();
+            setTimeout(() => win.print(), 500);
+          }
 
           return (
             <div className="fade-in" style={{ padding: "18px 18px 120px" }}>
@@ -5363,10 +5522,18 @@ export default function CryptoApp() {
                     <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>AI Executive Summary</div>
                     <div style={{ fontSize: 11, color: "#444", marginTop: 2 }}>For the executor · annual reference</div>
                   </div>
-                  <button onClick={() => generateInheritanceSummary(jorgeHoldings, inheritanceAllocs)} disabled={inheritanceAiLoading}
-                    style={{ background: "linear-gradient(135deg,#0d1b3e,#1a2f5e)", border: "1px solid #2979ff44", borderRadius: 10, padding: "8px 14px", fontSize: 11, fontWeight: 700, color: "#4d8aff", cursor: "pointer", opacity: inheritanceAiLoading ? 0.6 : 1 }}>
-                    {inheritanceAiLoading ? "Generating…" : "✦ Generate"}
-                  </button>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => generateInheritanceSummary(jorgeHoldings, inheritanceAllocs)} disabled={inheritanceAiLoading}
+                      style={{ background: "linear-gradient(135deg,#0d1b3e,#1a2f5e)", border: "1px solid #2979ff44", borderRadius: 10, padding: "8px 14px", fontSize: 11, fontWeight: 700, color: "#4d8aff", cursor: "pointer", opacity: inheritanceAiLoading ? 0.6 : 1 }}>
+                      {inheritanceAiLoading ? "Generating…" : "✦ Generate"}
+                    </button>
+                    {inheritanceAiSummary && (
+                      <button onClick={generateInheritancePDF}
+                        style={{ background: "linear-gradient(135deg,#1a0d0d,#3a1a00)", border: "1px solid #f7931a44", borderRadius: 10, padding: "8px 14px", fontSize: 11, fontWeight: 700, color: "#f7931a", cursor: "pointer" }}>
+                        ↓ Export PDF
+                      </button>
+                    )}
+                  </div>
                 </div>
                 {inheritanceAiError && <div style={{ fontSize: 11, color: "#ff6b6b", marginBottom: 8 }}>{inheritanceAiError}</div>}
                 {inheritanceAiSummary
@@ -5393,7 +5560,6 @@ export default function CryptoApp() {
             {[
               { label:"Full Name", key:"name", placeholder:"e.g. Jorge Medina" },
               { label:"Initials (2 letters)", key:"avatar", placeholder:"e.g. JM", maxLength:2 },
-              { label:"Exchange / Platform", key:"exchange", placeholder:"e.g. Coinbase, Kraken, iTrust" },
             ].map(({ label, key, placeholder, maxLength }) => (
               <div key={key} style={{ marginBottom:14 }}>
                 <div style={{ fontSize:11, fontWeight:600, color:"#666", marginBottom:5, textTransform:"uppercase", letterSpacing:"0.06em" }}>{label}</div>
@@ -5411,7 +5577,7 @@ export default function CryptoApp() {
                 const name = newMemberForm.name.trim();
                 const avatar = newMemberForm.avatar.trim() || name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
                 const id = name.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
-                const doc = { id, name, avatar, exchange: newMemberForm.exchange.trim() || "Manual", createdAt: new Date().toISOString() };
+                const doc = { id, name, avatar, createdAt: new Date().toISOString() };
                 try {
                   await fsSet("members", id, doc);
                   setFirestoreMembers(prev => [...prev.filter(m => m.id !== id), doc]);
@@ -5430,7 +5596,7 @@ export default function CryptoApp() {
         position: "fixed", bottom: 0, left: 0, right: 0,
         background: "#0a0a0a", borderTop: "1px solid #1a1a1a",
         display: "flex", justifyContent: "space-around", alignItems: "center",
-        padding: "10px 0 24px", zIndex: 50
+        padding: "10px 0", paddingBottom: "calc(10px + env(safe-area-inset-bottom))", zIndex: 50
       }}>
         {[
           {

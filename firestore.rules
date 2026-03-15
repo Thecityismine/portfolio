@@ -17,5 +17,8 @@ service cloud.firestore {
     match /inheritance/{doc} {
       allow read, write: if true;
     }
+    match /subscriptions/{doc} {
+      allow read, write: if true;
+    }
   }
 }
