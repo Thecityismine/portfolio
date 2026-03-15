@@ -2583,8 +2583,9 @@ export default function CryptoApp() {
     return () => { window.removeEventListener("focus", onFocus); clearInterval(poll); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Clear AI error when switching member portfolios
-  useEffect(() => { setMemberAiError(""); }, [selectedMember]);
+  // Clear AI error + collapse holdings when switching member portfolios
+  const [holdingsExpanded, setHoldingsExpanded] = useState(false);
+  useEffect(() => { setMemberAiError(""); setHoldingsExpanded(false); }, [selectedMember]);
 
   // Portfolio snapshots — one document per day keyed by date string
   const [snapshots, setSnapshots] = useState([]);
@@ -4471,7 +4472,7 @@ export default function CryptoApp() {
                 yearMap[yr] = (yearMap[yr] || 0) + t.qty;
               });
               const years = Object.entries(yearMap)
-                .sort(([a], [b]) => Number(a) - Number(b))
+                .sort(([a], [b]) => Number(b) - Number(a))
                 .filter(([, qty]) => qty > 0);
               const maxYearBtc = Math.max(...years.map(([, q]) => q), 0.0001);
 
@@ -5008,43 +5009,65 @@ export default function CryptoApp() {
               })()}
 
               {/* Holdings list — tappable to coin detail */}
-              <div style={{ fontSize: 13, fontWeight: 500, color: "#666", marginBottom: 10 }}>Holdings</div>
-              <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden", marginBottom: 24 }}>
-                {Object.entries(member.holdings || {})
+              {(() => {
+                const COIN_COLOR = {BTC:"#f7931a",ETH:"#627eea",ADA:"#4da6ff",LTC:"#b8b8b8",SOL:"#9945ff",DOT:"#e6007a",XRP:"#00aad4",ALGO:"#00b4d8",CRV:"#d84627",XLM:"#14b8d4",BCH:"#8dc351",BAT:"#ff5000",ZEC:"#f4b728",EOS:"#6e5da8",DGB:"#006ad2",ETC:"#328332",IQ:"#e91e8c",TRX:"#ef0027",XMR:"#ff6600",LINK:"#2a5ada",SUPER:"#7b3fe4",ICP:"#3b00b9",THETA:"#2ab8e6",FIL:"#0090ff",TFUEL:"#f7941d",BTG:"#eba809",USDT:"#26a17b",TMT:"#4a90d9",ENS:"#5284ff",ZIL:"#29ccc4",QTUM:"#2e9ad0",UTK:"#4a4af4",VET:"#15bdff",AMPL:"#cc3e00",NEO:"#58bf00",SGB:"#e4348b",SHIB:"#ffa409",ZRX:"#302c2c",MANA:"#ff2d55",GALA:"#1a1a2e",DENT:"#aaaaaa",OMG:"#1a53f0",REEF:"#5f34d6",XNO:"#4a90e2",XTZ:"#2c7df7",FET:"#1a1a3e",TRUMP:"#e4b400",SAND:"#04adef",ICX:"#1fc5c9",FLR:"#e4179c",LCC:"#45b26b",XRD:"#052cc0",STX:"#5546ff",GZIL:"#29ccc4",HERO:"#00c9ff",GAS:"#58bf00",HEX:"#ff00ff",KCS:"#0093dd",WAN:"#136aad",TKY:"#1abc9c",NCASH:"#00b4ff",TDROP:"#222222",SXP:"#ff3366",BAX:"#ff69b4",AST:"#0b70ff",ETHW:"#627eea",NEX:"#58bf00",FTT:"#02a4d3",MELANIA:"#c0c0c0",FLM:"#ff69b4",RDD:"#c6222a",BIX:"#2d5de6",KDA:"#ed098f",BLOK:"#8c52ff",USDC:"#2775ca",PLR:"#45b26b",CORZ:"#aaaaaa",GFOF:"#eba809"};
+                const COIN_ICON = {BTC:"₿",ETH:"Ξ",ADA:"⬡",LTC:"Ł",SOL:"◎",DOT:"●",XRP:"✦",ALGO:"A",CRV:"C",XLM:"✶",BCH:"Ƀ",BAT:"▲",ZEC:"Z",EOS:"E",DGB:"D",ETC:"Ξ",IQ:"IQ"};
+                const allHoldings = Object.entries(member.holdings || {})
                   .filter(([coin, qty]) => qty * (COIN_PRICES[coin] || 0) > 0.01)
-                  .sort(([ca, qa], [cb, qb]) => (qb * (COIN_PRICES[cb]||0)) - (qa * (COIN_PRICES[ca]||0)))
-                  .map(([coin, qty], idx, arr) => {
-                    const price = COIN_PRICES[coin] || 0;
-                    const usdVal = qty * price;
-                    const costForCoin = TRANSACTIONS.filter(t => t.member === member.id && t.coin === coin && t.usdTotal > 0).reduce((s,t) => s + t.usdTotal, 0);
-                    const plDollar = costForCoin > 0 ? usdVal - costForCoin : null;
-                    const plPct = costForCoin > 0 ? ((usdVal - costForCoin) / costForCoin * 100).toFixed(1) : null;
-                    const COIN_COLOR = {BTC:"#f7931a",ETH:"#627eea",ADA:"#4da6ff",LTC:"#b8b8b8",SOL:"#9945ff",DOT:"#e6007a",XRP:"#00aad4",ALGO:"#00b4d8",CRV:"#d84627",XLM:"#14b8d4",BCH:"#8dc351",BAT:"#ff5000",ZEC:"#f4b728",EOS:"#6e5da8",DGB:"#006ad2",ETC:"#328332",IQ:"#e91e8c",TRX:"#ef0027",XMR:"#ff6600",LINK:"#2a5ada",SUPER:"#7b3fe4",ICP:"#3b00b9",THETA:"#2ab8e6",FIL:"#0090ff",TFUEL:"#f7941d",BTG:"#eba809",USDT:"#26a17b",TMT:"#4a90d9",ENS:"#5284ff",ZIL:"#29ccc4",QTUM:"#2e9ad0",UTK:"#4a4af4",VET:"#15bdff",AMPL:"#cc3e00",NEO:"#58bf00",SGB:"#e4348b",SHIB:"#ffa409",ZRX:"#302c2c",MANA:"#ff2d55",GALA:"#1a1a2e",DENT:"#aaaaaa",OMG:"#1a53f0",REEF:"#5f34d6",XNO:"#4a90e2",XTZ:"#2c7df7",FET:"#1a1a3e",TRUMP:"#e4b400",SAND:"#04adef",ICX:"#1fc5c9",FLR:"#e4179c",LCC:"#45b26b",XRD:"#052cc0",STX:"#5546ff",GZIL:"#29ccc4",HERO:"#00c9ff",GAS:"#58bf00",HEX:"#ff00ff",KCS:"#0093dd",WAN:"#136aad",TKY:"#1abc9c",NCASH:"#00b4ff",TDROP:"#222222",SXP:"#ff3366",BAX:"#ff69b4",AST:"#0b70ff",ETHW:"#627eea",NEX:"#58bf00",FTT:"#02a4d3",MELANIA:"#c0c0c0",FLM:"#ff69b4",RDD:"#c6222a",BIX:"#2d5de6",KDA:"#ed098f",BLOK:"#8c52ff",USDC:"#2775ca",PLR:"#45b26b",CORZ:"#aaaaaa",GFOF:"#eba809"};
-                    const COIN_ICON = {BTC:"₿",ETH:"Ξ",ADA:"⬡",LTC:"Ł",SOL:"◎",DOT:"●",XRP:"✦",ALGO:"A",CRV:"C",XLM:"✶",BCH:"Ƀ",BAT:"▲",ZEC:"Z",EOS:"E",DGB:"D",ETC:"Ξ",IQ:"IQ"};
-                    const isLast = idx === arr.length - 1;
-                    return (
-                      <div key={coin}
-                        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "15px 16px", borderBottom: isLast ? "none" : "1px solid #1a1a1a", cursor: "pointer" }}
-                        onClick={() => { setSelectedCoin(coin); setCoinPage("detail"); }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                          <div style={{ width: 42, height: 42, borderRadius: "50%", background: `${COIN_COLOR[coin]||"#555"}20`, border: `1.5px solid ${COIN_COLOR[coin]||"#555"}55`, display: "flex", alignItems: "center", justifyContent: "center", color: COIN_COLOR[coin]||"#888", fontWeight: 700, fontSize: 15, flexShrink: 0 }}>{COIN_ICON[coin]||coin.slice(0,2)}</div>
-                          <div>
-                            <div style={{ fontSize: 16, fontWeight: 600, color: "#fff", marginBottom: 2 }}>{coin}</div>
-                            <div style={{ fontSize: 13, color: "#777" }}>{qty < 0.001 ? qty.toFixed(8) : qty < 1 ? qty.toFixed(5) : qty.toFixed(4)} | {price > 0 ? `$${price.toLocaleString()}` : "—"}</div>
-                          </div>
-                        </div>
-                        <div style={{ textAlign: "right" }}>
-                          <div style={{ fontSize: 16, fontWeight: 600, color: "#fff", marginBottom: 2 }}>{usdVal > 0.01 ? fmtFull(usdVal) : "—"}</div>
-                          {plDollar !== null && (
-                            <div style={{ fontSize: 13, fontWeight: 500, color: plDollar >= 0 ? "#00e676" : "#ff4444" }}>
-                              {plDollar >= 0 ? "+" : ""}{fmtFull(plDollar)} <span style={{ fontSize: 12 }}>{plDollar >= 0 ? "+" : ""}{plPct}%</span>
+                  .sort(([ca, qa], [cb, qb]) => (qb * (COIN_PRICES[cb]||0)) - (qa * (COIN_PRICES[ca]||0)));
+                const PREVIEW = 5;
+                const visible = holdingsExpanded ? allHoldings : allHoldings.slice(0, PREVIEW);
+                const hiddenCount = allHoldings.length - PREVIEW;
+                return (
+                  <div style={{ marginBottom: 24 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "#666" }}>Holdings</div>
+                      <div style={{ fontSize: 12, color: "#555" }}>{allHoldings.length} assets</div>
+                    </div>
+                    <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden" }}>
+                      {visible.map(([coin, qty], idx) => {
+                        const price = COIN_PRICES[coin] || 0;
+                        const usdVal = qty * price;
+                        const costForCoin = TRANSACTIONS.filter(t => t.member === member.id && t.coin === coin && t.usdTotal > 0).reduce((s,t) => s + t.usdTotal, 0);
+                        const plDollar = costForCoin > 0 ? usdVal - costForCoin : null;
+                        const plPct = costForCoin > 0 ? ((usdVal - costForCoin) / costForCoin * 100).toFixed(1) : null;
+                        const isLast = idx === visible.length - 1 && (holdingsExpanded || allHoldings.length <= PREVIEW);
+                        return (
+                          <div key={coin}
+                            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "15px 16px", borderBottom: isLast ? "none" : "1px solid #1a1a1a", cursor: "pointer" }}
+                            onClick={() => { setSelectedCoin(coin); setCoinPage("detail"); }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                              <div style={{ width: 42, height: 42, borderRadius: "50%", background: `${COIN_COLOR[coin]||"#555"}20`, border: `1.5px solid ${COIN_COLOR[coin]||"#555"}55`, display: "flex", alignItems: "center", justifyContent: "center", color: COIN_COLOR[coin]||"#888", fontWeight: 700, fontSize: 15, flexShrink: 0 }}>{COIN_ICON[coin]||coin.slice(0,2)}</div>
+                              <div>
+                                <div style={{ fontSize: 16, fontWeight: 600, color: "#fff", marginBottom: 2 }}>{coin}</div>
+                                <div style={{ fontSize: 13, color: "#777" }}>{qty < 0.001 ? qty.toFixed(8) : qty < 1 ? qty.toFixed(5) : qty.toFixed(4)} | {price > 0 ? `$${price.toLocaleString()}` : "—"}</div>
+                              </div>
                             </div>
-                          )}
+                            <div style={{ textAlign: "right" }}>
+                              <div style={{ fontSize: 16, fontWeight: 600, color: "#fff", marginBottom: 2 }}>{usdVal > 0.01 ? fmtFull(usdVal) : "—"}</div>
+                              {plDollar !== null && (
+                                <div style={{ fontSize: 13, fontWeight: 500, color: plDollar >= 0 ? "#00e676" : "#ff4444" }}>
+                                  {plDollar >= 0 ? "+" : ""}{fmtFull(plDollar)} <span style={{ fontSize: 12 }}>{plDollar >= 0 ? "+" : ""}{plPct}%</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {/* Expand / Collapse row */}
+                      {allHoldings.length > PREVIEW && (
+                        <div onClick={() => setHoldingsExpanded(v => !v)}
+                          style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "13px 16px", borderTop: "1px solid #1a1a1a", cursor: "pointer", background: "#0d0d0d" }}>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: "#555" }}>
+                            {holdingsExpanded ? "Show less" : `View all ${allHoldings.length} assets  (+${hiddenCount} more)`}
+                          </span>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#444" strokeWidth="2.5" style={{ transform: holdingsExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
                         </div>
-                      </div>
-                    );
-                  })}
-              </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Recent Transactions */}
               {memberTxs.length > 0 && (
