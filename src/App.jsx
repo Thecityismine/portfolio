@@ -3895,12 +3895,12 @@ export default function CryptoApp() {
                       <span style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{m.name}</span>
                     </div>
                     <div style={{ fontSize: 19, fontWeight: 700, color: "#fff", letterSpacing: "-0.01em", marginBottom: 3 }}>{fmt(m.usd)}</div>
-                    {m.costBasis > 0 && <div style={{ fontSize: 11, color: "#555", marginBottom: 2 }}>Cost: {fmt(m.costBasis)}</div>}
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "#f7931a", marginBottom: 5 }}>{m.btc.toFixed(8).replace(/\.?0+$/,'')} BTC</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#f7931a", marginBottom: 4 }}>{m.btc.toFixed(8).replace(/\.?0+$/,'')} BTC</div>
                     {pct !== null
-                      ? <div style={{ fontSize: 13, fontWeight: 600, color: isUp ? "#00e676" : "#ff4444" }}>{isUp ? "+" : ""}{pct}%</div>
-                      : <div style={{ fontSize: 12, color: "#555" }}>—</div>
+                      ? <div style={{ fontSize: 13, fontWeight: 600, color: isUp ? "#00e676" : "#ff4444", marginBottom: 4 }}>{isUp ? "+" : ""}{pct}%</div>
+                      : <div style={{ fontSize: 12, color: "#555", marginBottom: 4 }}>—</div>
                     }
+                    {m.costBasis > 0 && <div style={{ fontSize: 11, color: "#666" }}>Cost {fmt(m.costBasis)}</div>}
                   </div>
                 );
               })}
