@@ -4949,7 +4949,9 @@ export default function CryptoApp() {
           const jorgeCoins = Object.keys(jorgeHoldings).filter(c => (jorgeHoldings[c] || 0) > 0.00001);
           const altCoins = jorgeCoins.filter(c => c !== "BTC" && c !== "ETH");
           const allAltsUSD = altCoins.reduce((s, c) => s + (jorgeHoldings[c] || 0) * (COIN_PRICES[c] || 0), 0);
-          const totalEstateUSD = jorgeCoins.reduce((s, c) => s + (jorgeHoldings[c] || 0) * (COIN_PRICES[c] || 0), 0);
+          const itrustMember = MEMBERS.find(m => m.id === "itrust");
+          const itrustUSD = itrustMember?.usd || 0;
+          const totalEstateUSD = jorgeCoins.reduce((s, c) => s + (jorgeHoldings[c] || 0) * (COIN_PRICES[c] || 0), 0) + itrustUSD;
           const allNonJorge = MEMBERS.filter(m => m.id !== "jorge");
           const activeBeneficiaryIds = inheritanceBeneficiaryIds ?? allNonJorge.map(m => m.id);
           const beneficiaries = allNonJorge.filter(m => activeBeneficiaryIds.includes(m.id));
@@ -4964,15 +4966,18 @@ export default function CryptoApp() {
             if (coin === "BTC" || coin === "ETH") return inheritanceDraft[coin]?.[memberId] || 0;
             return inheritanceDraft._altcoins?.[memberId] || 0;
           };
+          const getItrustPct = (memberId) => inheritanceAllocs._itrust?.[memberId] || 0;
 
           const beneficiaryTotals = beneficiaries.map((m, i) => {
             const btcPct = getPct("BTC", m.id);
             const ethPct = getPct("ETH", m.id);
             const altPct = inheritanceAllocs._altcoins?.[m.id] || 0;
+            const itrustPct = getItrustPct(m.id);
             const inheritedCoins = [
               ...(jorgeHoldings.BTC > 0.00001 && btcPct > 0 ? [{ coin: "BTC", pct: btcPct, qty: jorgeHoldings.BTC * btcPct / 100, usd: jorgeHoldings.BTC * btcPct / 100 * (COIN_PRICES.BTC || 0) }] : []),
               ...(jorgeHoldings.ETH > 0.00001 && ethPct > 0 ? [{ coin: "ETH", pct: ethPct, qty: jorgeHoldings.ETH * ethPct / 100, usd: jorgeHoldings.ETH * ethPct / 100 * (COIN_PRICES.ETH || 0) }] : []),
               ...(altCoins.length > 0 && altPct > 0 ? [{ coin: "Altcoins", pct: altPct, qty: null, usd: allAltsUSD * altPct / 100 }] : []),
+              ...(itrustUSD > 0 && itrustPct > 0 ? [{ coin: "iTrust Capital", pct: itrustPct, qty: null, usd: itrustUSD * itrustPct / 100 }] : []),
             ];
             const inheritedUSD = inheritedCoins.reduce((s, x) => s + x.usd, 0);
             const ownUSD = Object.entries(m.holdings || {}).reduce((s, [c, q]) => s + q * (COIN_PRICES[c] || 0), 0);
@@ -4986,9 +4991,10 @@ export default function CryptoApp() {
             ...(jorgeHoldings.BTC > 0.00001 ? ["BTC"] : []),
             ...(jorgeHoldings.ETH > 0.00001 ? ["ETH"] : []),
             ...(altCoins.length > 0 ? ["_altcoins"] : []),
+            ...(itrustUSD > 0 ? ["_itrust"] : []),
           ];
-          const groupLabel = g => g === "_altcoins" ? "Altcoins" : g;
-          const groupSub = g => g === "_altcoins" ? `${altCoins.length} coins · ${fmtFull(allAltsUSD)}` : fmtFull((jorgeHoldings[g] || 0) * (COIN_PRICES[g] || 0));
+          const groupLabel = g => g === "_altcoins" ? "Altcoins" : g === "_itrust" ? "iTrust Capital" : g;
+          const groupSub = g => g === "_altcoins" ? `${altCoins.length} coins · ${fmtFull(allAltsUSD)}` : g === "_itrust" ? `Roth IRA · ${fmtFull(itrustUSD)}` : fmtFull((jorgeHoldings[g] || 0) * (COIN_PRICES[g] || 0));
 
           const unallocated = ALLOC_GROUPS.filter(g => {
             const total = beneficiaries.reduce((s, m) => s + (inheritanceAllocs[g]?.[m.id] || 0), 0);
@@ -5156,7 +5162,7 @@ export default function CryptoApp() {
               {/* Edit panel — BTC / ETH / Altcoins only */}
               {inheritanceEditMode && (
                 <div style={{ background: "#081808", border: "1px solid #00e67622", borderRadius: 14, padding: "14px", marginBottom: 14 }}>
-                  <div style={{ fontSize: 11, color: "#00e676", fontWeight: 600, marginBottom: 12 }}>Set % per beneficiary. BTC and ETH are split individually. Altcoins % applies to all other coins equally.</div>
+                  <div style={{ fontSize: 11, color: "#00e676", fontWeight: 600, marginBottom: 12 }}>Set % per beneficiary. BTC and ETH are split individually. Altcoins % applies to all other coins equally. iTrust Capital is the Roth IRA account value.</div>
                   {ALLOC_GROUPS.map(group => {
                     const totalPct = beneficiaries.reduce((s, m) => s + (parseFloat(inheritanceDraft[group]?.[m.id]) || 0), 0);
                     return (
@@ -5241,7 +5247,7 @@ export default function CryptoApp() {
                                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                                   <span style={{ fontSize: 11, fontWeight: 700, color: "#888", minWidth: 36 }}>{coin}</span>
                                   <span style={{ fontSize: 10, background: b.color + "22", color: b.color, borderRadius: 4, padding: "1px 5px", fontWeight: 600 }}>{pct}%</span>
-                                  <span style={{ fontSize: 11, color: "#444" }}>{qty < 1 ? qty.toFixed(5) : qty.toFixed(3)}</span>
+                                  {qty !== null && <span style={{ fontSize: 11, color: "#444" }}>{qty < 1 ? qty.toFixed(5) : qty.toFixed(3)}</span>}
                                 </div>
                                 <span style={{ fontSize: 11, color: b.color }}>{fmtFull(usd)}</span>
                               </div>
