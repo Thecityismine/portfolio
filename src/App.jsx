@@ -2758,21 +2758,12 @@ export default function CryptoApp() {
         .sidebar.sidebar-open { transform: translateX(0); }
 
         /* Content column: full-width on mobile */
-        .content-col { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+        .content-col { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 
         /* ── TABLET (768px+) ──────────────────────────────────── */
         @media (min-width: 768px) {
           .modal { max-width: 560px; }
           .options-sheet { max-width: 560px; }
-        }
-
-        /* ── MOBILE: bottom nav in flex flow (not fixed) ─────── */
-        @media (max-width: 1099px) {
-          .bottom-nav-bar {
-            position: relative !important;
-            left: auto !important; right: auto !important; bottom: auto !important;
-            flex-shrink: 0;
-          }
         }
 
         /* ── DESKTOP (1100px+) ───────────────────────────────── */
@@ -3501,7 +3492,7 @@ export default function CryptoApp() {
         );
       })()}
 
-      <div ref={scrollContainerRef} style={{ flex: 1, overflowY: "scroll", WebkitOverflowScrolling: "touch", paddingBottom: 0, minHeight: 0 }}>
+      <div ref={scrollContainerRef} style={{ flex: 1, overflowY: "scroll", WebkitOverflowScrolling: "touch", paddingBottom: 80, minHeight: 0 }}>
 
         {/* HOME */}
         {page === "home" && (
@@ -5605,7 +5596,7 @@ ${inheritanceAiSummary?`<h2>AI Executive Summary</h2><div class="ai">${inheritan
         position: "fixed", bottom: 0, left: 0, right: 0,
         background: "#0a0a0a", borderTop: "1px solid #1a1a1a",
         display: "flex", justifyContent: "space-around", alignItems: "center",
-        padding: "10px 0", paddingBottom: "calc(10px + env(safe-area-inset-bottom))", zIndex: 50
+        paddingTop: 10, paddingBottom: "calc(10px + env(safe-area-inset-bottom))", zIndex: 50
       }}>
         {[
           {
