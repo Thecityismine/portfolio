@@ -2923,6 +2923,43 @@ export default function CryptoApp() {
     return data;
   })();
   const memberTxs = TRANSACTIONS.filter(t => t.member === member?.id);
+
+  // Stable chart data for member portfolio page — avoids re-randomizing on every render
+  const memberPortfolioChart = useMemo(() => {
+    if (!member) return { mainData: [], btcBench: [], spyBench: [] };
+
+    const mainData =
+      snapshotsToChart(snapshots, memberChartRange, s => s.members?.[member.id] ?? 0) ||
+      generateChartData(member.usd, memberChartRange);
+    if (mainData.length > 0 && member.usd > 0) {
+      mainData[mainData.length - 1] = { ...mainData[mainData.length - 1], v: Math.round(member.usd * 100) / 100 };
+    }
+
+    const n = mainData.length;
+    const daysBack = { "1M": 30, "3M": 90, "ALL": 365 * 5 }[memberChartRange] ?? 365 * 5;
+    const startMs = Date.now() - daysBack * 86400000;
+    const startValue = mainData[0]?.v || member.usd;
+
+    // BTC benchmark — real historical prices from BTC_HIST
+    const rawBtcBench = mainData.map((_, i) => {
+      const ptMs = startMs + (i / Math.max(n - 1, 1)) * daysBack * 86400000;
+      const ptDate = new Date(ptMs);
+      const dateStr = `${ptDate.getFullYear()}-${String(ptDate.getMonth() + 1).padStart(2, "0")}-01`;
+      return btcHistPrice(dateStr);
+    });
+    const btcStartPrice = rawBtcBench[0] || 1;
+    const btcBench = rawBtcBench.map(p => Math.round(startValue * (p / btcStartPrice) * 100) / 100);
+
+    // SPY benchmark — smooth compound growth ~15%/yr (no randomness)
+    const years = daysBack / 365;
+    const spyStartVal = startValue / Math.pow(1.15, years);
+    const spyBench = mainData.map((_, i) => {
+      const frac = i / Math.max(n - 1, 1);
+      return Math.round(spyStartVal * Math.pow(1.15, years * frac) * 100) / 100;
+    });
+
+    return { mainData, btcBench, spyBench };
+  }, [member?.id, memberChartRange, snapshots]); // eslint-disable-line react-hooks/exhaustive-deps
   const filteredTxs = (txFilter === "all" ? TRANSACTIONS : TRANSACTIONS.filter(t => t.member === txFilter))
     .slice().sort((a, b) => new Date(b.date) - new Date(a.date));
 
@@ -4792,15 +4829,11 @@ export default function CryptoApp() {
 
               {/* ── PORTFOLIO GROWTH CHART + BENCHMARKS ── */}
               {(() => {
-                const mainData =
-                  snapshotsToChart(snapshots, memberChartRange, s => s.members?.[member.id] ?? 0) ||
-                  generateChartData(member.usd, memberChartRange);
-                const btcBench = generateBenchmarkData(member.usd, memberChartRange, 0.92);
-                const spyBench = generateBenchmarkData(member.usd, memberChartRange, 0.35);
+                const { mainData, btcBench, spyBench } = memberPortfolioChart;
                 const merged = mainData.map((d, i) => ({
                   ...d,
-                  btc: memberBenchmark === "btc" ? btcBench[i]?.bv : undefined,
-                  spy: memberBenchmark === "spy" ? spyBench[i]?.bv : undefined,
+                  btc: memberBenchmark === "btc" ? btcBench[i] : undefined,
+                  spy: memberBenchmark === "spy" ? spyBench[i] : undefined,
                 }));
                 return (
                   <div style={{ marginBottom: 20 }}>
