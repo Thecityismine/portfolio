@@ -2928,9 +2928,11 @@ export default function CryptoApp() {
   const memberPortfolioChart = useMemo(() => {
     if (!member) return { mainData: [], btcBench: [], spyBench: [] };
 
-    const mainData =
-      snapshotsToChart(snapshots, memberChartRange, s => s.members?.[member.id] ?? 0) ||
-      generateChartData(member.usd, memberChartRange);
+    const snapshotData = snapshotsToChart(snapshots, memberChartRange, s => s.members?.[member.id] ?? 0);
+    const minSnapshots = { "1M": 7, "3M": 14, "ALL": 30 }[memberChartRange] ?? 7;
+    const mainData = (snapshotData && snapshotData.length >= minSnapshots)
+      ? snapshotData
+      : generateChartData(member.usd, memberChartRange);
     if (mainData.length > 0 && member.usd > 0) {
       mainData[mainData.length - 1] = { ...mainData[mainData.length - 1], v: Math.round(member.usd * 100) / 100 };
     }
