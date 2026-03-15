@@ -2655,7 +2655,7 @@ export default function CryptoApp() {
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html { background: #0a0a0a; width: 100%; height: 100%; }
-        body { background: #080808; width: 100%; height: 100%; overscroll-behavior: none; }
+        body { background: #0a0a0a; width: 100%; height: 100%; overscroll-behavior: none; }
         #root { background: #080808; width: 100%; height: 100%; }
         ::-webkit-scrollbar { width: 2px; }
         ::-webkit-scrollbar-track { background: #0a0a0a; }
@@ -2762,15 +2762,6 @@ export default function CryptoApp() {
         @media (min-width: 768px) {
           .modal { max-width: 560px; }
           .options-sheet { max-width: 560px; }
-        }
-
-        /* ── MOBILE: footer in flex flow so it always anchors to bottom ── */
-        @media (max-width: 1099px) {
-          .bottom-nav-bar {
-            position: relative !important;
-            left: auto !important; right: auto !important; bottom: auto !important;
-            flex-shrink: 0; width: 100%;
-          }
         }
 
         /* ── DESKTOP (1100px+) ───────────────────────────────── */
@@ -3499,7 +3490,7 @@ export default function CryptoApp() {
         );
       })()}
 
-      <div ref={scrollContainerRef} style={{ flex: 1, overflowY: "scroll", WebkitOverflowScrolling: "touch", paddingBottom: 16, minHeight: 0 }}>
+      <div ref={scrollContainerRef} style={{ flex: 1, overflowY: "scroll", WebkitOverflowScrolling: "touch", paddingBottom: 80, minHeight: 0 }}>
 
         {/* HOME */}
         {page === "home" && (
