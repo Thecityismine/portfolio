@@ -2356,6 +2356,7 @@ export default function CryptoApp() {
   const [inheritanceAiError, setInheritanceAiError] = useState("");
   const [simBtcPrice, setSimBtcPrice] = useState(500000); // Generational Wealth Simulator scenario price
   const [inheritanceSaving, setInheritanceSaving] = useState(false);
+  const [inheritanceSaveError, setInheritanceSaveError] = useState("");
   const [executorCardCollapsed, setExecutorCardCollapsed] = useState(true);
   const [manageBeneficiariesOpen, setManageBeneficiariesOpen] = useState(false);
   const [inheritanceInstructions, setInheritanceInstructions] = useState("");
@@ -2399,7 +2400,8 @@ export default function CryptoApp() {
     fsGetAll("inheritance")
       .then(docs => {
         if (docs.length > 0) {
-          const doc = docs[0];
+          // Use latest doc (in case duplicates were created by failed saves)
+          const doc = docs.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""))[0];
           setInheritanceDocId(doc.id);
           try { setInheritanceAllocs(JSON.parse(doc.allocationsJson || "{}")); } catch { }
           if (doc.executorId) setInheritanceExecutorId(doc.executorId);
@@ -2418,26 +2420,34 @@ export default function CryptoApp() {
     if (bIds !== null) setInheritanceBeneficiaryIds(bIds);
     if (!FS_BASE) return;
     setInheritanceSaving(true);
+    setInheritanceSaveError("");
     try {
-      const data = { allocationsJson: JSON.stringify(allocs), executorId, beneficiaryIds: JSON.stringify(bIds), instructions: inheritanceInstructions };
+      const data = { allocationsJson: JSON.stringify(allocs), executorId, beneficiaryIds: JSON.stringify(bIds), instructions: inheritanceInstructions, createdAt: inheritanceDocId ? undefined : new Date().toISOString() };
       if (inheritanceDocId) {
         await fsUpdate("inheritance", inheritanceDocId, data);
       } else {
-        const doc = await fsAdd("inheritance", data);
+        const doc = await fsAdd("inheritance", { ...data, createdAt: new Date().toISOString() });
         setInheritanceDocId(doc.id);
       }
-    } catch(e) { console.error("Failed to save inheritance:", e); }
+    } catch(e) {
+      console.error("Failed to save inheritance:", e);
+      setInheritanceSaveError("Save failed — check your connection and try again.");
+    }
     setInheritanceSaving(false);
   }
 
   async function saveInheritanceInstructions(text) {
     setInheritanceInstructions(text);
     if (!FS_BASE) return;
+    setInheritanceSaveError("");
     try {
       const data = { allocationsJson: JSON.stringify(inheritanceAllocs), executorId: inheritanceExecutorId, beneficiaryIds: JSON.stringify(inheritanceBeneficiaryIds), instructions: text };
       if (inheritanceDocId) { await fsUpdate("inheritance", inheritanceDocId, data); }
-      else { const doc = await fsAdd("inheritance", data); setInheritanceDocId(doc.id); }
-    } catch(e) { console.error("Failed to save instructions:", e); }
+      else { const doc = await fsAdd("inheritance", { ...data, createdAt: new Date().toISOString() }); setInheritanceDocId(doc.id); }
+    } catch(e) {
+      console.error("Failed to save instructions:", e);
+      setInheritanceSaveError("Save failed — check your connection and try again.");
+    }
   }
 
   async function generateInheritanceSummary(jorgeHoldings, allocs) {
@@ -6494,10 +6504,11 @@ ${inheritanceAiSummary?`<h2>AI Executive Summary</h2><div class="ai">${inheritan
                       </div>
                     );
                   })}
-                  <button disabled={inheritanceSaving} onClick={async () => { await saveInheritanceAllocs(inheritanceDraft, inheritanceExecutorId); setInheritanceEditMode(false); setInheritanceDraft({}); }}
+                  <button disabled={inheritanceSaving} onClick={async () => { await saveInheritanceAllocs(inheritanceDraft, inheritanceExecutorId); if (!inheritanceSaveError) { setInheritanceEditMode(false); setInheritanceDraft({}); } }}
                     style={{ width: "100%", background: "#00e676", border: "none", borderRadius: 10, padding: "11px", fontSize: 13, fontWeight: 700, color: "#000", cursor: "pointer", marginTop: 4 }}>
                     {inheritanceSaving ? "Saving…" : "Save Allocations"}
                   </button>
+                  {inheritanceSaveError && <div style={{ fontSize: 11, color: "#ff6b6b", marginTop: 6, textAlign: "center" }}>{inheritanceSaveError}</div>}
                 </div>
               )}
 
