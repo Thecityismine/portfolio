@@ -2422,7 +2422,7 @@ export default function CryptoApp() {
     setInheritanceSaving(true);
     setInheritanceSaveError("");
     try {
-      const data = { allocationsJson: JSON.stringify(allocs), executorId, beneficiaryIds: JSON.stringify(bIds), instructions: inheritanceInstructions, createdAt: inheritanceDocId ? undefined : new Date().toISOString() };
+      const data = { allocationsJson: JSON.stringify(allocs), executorId, beneficiaryIds: JSON.stringify(bIds), instructions: inheritanceInstructions };
       if (inheritanceDocId) {
         await fsUpdate("inheritance", inheritanceDocId, data);
       } else {
@@ -2431,7 +2431,7 @@ export default function CryptoApp() {
       }
     } catch(e) {
       console.error("Failed to save inheritance:", e);
-      setInheritanceSaveError("Save failed — check your connection and try again.");
+      setInheritanceSaveError("Save failed: " + (e.message || "unknown error"));
     }
     setInheritanceSaving(false);
   }
