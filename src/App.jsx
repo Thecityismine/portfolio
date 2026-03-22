@@ -6246,8 +6246,8 @@ td{padding:8px 12px;border-bottom:1px solid #f5f5f5;color:#333}tr:last-child td{
 .alloc-page{page-break-before:always}
 h2{page-break-after:avoid}
 tr{page-break-inside:avoid}
-@page{size:letter;margin:0}
-@media print{body{padding:0.25in 0.75in 0.5in}}
+@page{size:letter;margin:0.25in 0.75in 0.5in}
+@media print{body{padding:0}}
 </style></head><body>
 <div class="page-footer">Skyline Digital &nbsp;·&nbsp; Confidential</div>
 <div class="header">
