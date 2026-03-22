@@ -6652,13 +6652,22 @@ ${inheritanceAiSummary?`<h2>AI Executive Summary</h2><div class="ai">${inheritan
               // Non-BTC value of estate at current prices (alts kept constant in projection)
               const estateNonBtcUSD = totalEstateUSD - jBtcQty * BTC_PRICE;
 
-              // For each member: total BTC they'd hold (inherited from Jorge + own)
+              // For each member: total BTC they'd hold (inherited from Jorge + iTrust BTC share + own)
               const simBens = beneficiaryTotals.map(b => {
-                const inheritedBtcItem = b.inheritedCoins.find(c => c.coin === "BTC");
-                const inheritedBtcQty  = inheritedBtcItem?.qty || 0;
-                const inheritedNonBtc  = b.inheritedCoins.filter(c => c.coin !== "BTC").reduce((s, c) => s + c.usd, 0);
-                const ownBtcQty        = b.holdings?.BTC || 0;
-                const ownNonBtcUSD     = Object.entries(b.holdings || {})
+                // BTC directly from Jorge's holdings
+                const inheritedBtcItem    = b.inheritedCoins.find(c => c.coin === "BTC");
+                const directInheritedBtc  = inheritedBtcItem?.qty || 0;
+                // BTC inside iTrust Capital (scales with price — must be extracted from the flat USD bucket)
+                const itrustItem          = b.inheritedCoins.find(c => c.coin === "iTrust Capital");
+                const itrustAllocBtcQty   = itrustItem ? itrustBtcQty * (itrustItem.pct / 100) : 0;
+                const itrustNonBtcUSD     = itrustItem ? Math.max(0, itrustItem.usd - itrustAllocBtcQty * BTC_PRICE) : 0;
+                const inheritedBtcQty     = directInheritedBtc + itrustAllocBtcQty;
+                // Fixed non-BTC inherited value (ETH, alts, iTrust non-BTC)
+                const inheritedNonBtc     = b.inheritedCoins
+                  .filter(c => c.coin !== "BTC" && c.coin !== "iTrust Capital")
+                  .reduce((s, c) => s + c.usd, 0) + itrustNonBtcUSD;
+                const ownBtcQty           = b.holdings?.BTC || 0;
+                const ownNonBtcUSD        = Object.entries(b.holdings || {})
                   .filter(([c]) => c !== "BTC").reduce((s, [c, q]) => s + q * (COIN_PRICES[c] || 0), 0);
                 return { ...b, inheritedBtcQty, inheritedNonBtc, ownBtcQty, ownNonBtcUSD };
               });
