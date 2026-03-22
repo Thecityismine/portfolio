@@ -2480,11 +2480,23 @@ export default function CryptoApp() {
       };
     });
     const totalEstateUSD = jorgeCoins.reduce((s, c) => s + (jorgeHoldings[c] || 0) * (COIN_PRICES[c] || 0), 0) + itrustUSDVal;
+    const btcUSD = (jorgeHoldings.BTC || 0) * (COIN_PRICES.BTC || 0);
+    const ethUSD = (jorgeHoldings.ETH || 0) * (COIN_PRICES.ETH || 0);
+    const altcoinUSD = jorgeCoins.filter(c => c !== "BTC" && c !== "ETH").reduce((s, c) => s + (jorgeHoldings[c] || 0) * (COIN_PRICES[c] || 0), 0);
+    const pct = v => totalEstateUSD > 0 ? (v / totalEstateUSD * 100).toFixed(1) + "%" : "—";
+    const composition = {
+      Bitcoin_BTC: { usd: Math.round(btcUSD), portfolioPct: pct(btcUSD) },
+      Ethereum_ETH: { usd: Math.round(ethUSD), portfolioPct: pct(ethUSD) },
+      Altcoins: { usd: Math.round(altcoinUSD), portfolioPct: pct(altcoinUSD), note: "Diversified altcoin positions — see holdings detail" },
+      RothIRA_iTrust: { usd: Math.round(itrustUSDVal), portfolioPct: pct(itrustUSDVal), note: "100% to Anseli Medina per estate plan" },
+    };
     const payload = {
       trustName: "Skyline Digital",
       estateOwner: "Jorge Medina",
+      executor: executor?.name || "Steffie Castro",
       date: new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
       totalEstateUSD: Math.round(totalEstateUSD),
+      composition,
       itrustCapitalRothIRA: { value: Math.round(itrustUSDVal), note: "100% allocated to Anseli Medina per estate plan" },
       beneficiaryCount: beneficiaries.length,
       beneficiaries: beneficiaryData,
@@ -2494,9 +2506,9 @@ export default function CryptoApp() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514", max_tokens: 1400,
-          system: "You are a senior estate planning attorney drafting a formal executive summary for a family digital asset trust called Skyline Digital. Write in polished, professional prose suitable for email or print. Use plain text only — absolutely no markdown symbols (no #, ##, **, *, ---, -, bullets). Use section titles in ALL CAPS on their own line followed by a blank line. Write in complete paragraphs. Be specific with dollar amounts. Note this is for planning purposes and they should consult an estate attorney.",
-          messages: [{ role: "user", content: `Draft a formal estate planning executive summary for the executor of the Skyline Digital trust as of ${payload.date}.\n\nEstate Data:\n${JSON.stringify(payload, null, 2)}${inheritanceInstructions ? `\n\nSpecial Instructions from Estate Owner:\n${inheritanceInstructions}` : ""}\n\nStructure the document with these sections (ALL CAPS titles, plain text body, no markdown):\n\nEXECUTIVE SUMMARY\nESTATE OVERVIEW\nBENEFICIARY ALLOCATION SUMMARY\nKEY NOTES FOR EXECUTOR${inheritanceInstructions ? "\nSPECIAL INSTRUCTIONS COMPLIANCE" : ""}\nRECOMMENDED NEXT STEPS\n\nUse professional paragraphs. No bullet dashes, no hashtags, no asterisks. Ready to paste into an email.` }],
+          model: "claude-sonnet-4-20250514", max_tokens: 4000,
+          system: "You are a senior estate planning attorney drafting a formal Family Office Playbook for the executor of a digital asset trust called Skyline Digital. Write in polished, professional prose. Use plain text only — absolutely no markdown symbols (no #, ##, **, *, ---, dashes, or bullet points). Use section titles in ALL CAPS on their own line, followed by a blank line, then complete paragraphs. Be specific with dollar amounts. This document must be actionable and clear enough for an executor operating under stress.",
+          messages: [{ role: "user", content: `Draft a formal Family Office Playbook for executor ${payload.executor} of the Skyline Digital trust as of ${payload.date}.\n\nEstate Data:\n${JSON.stringify(payload, null, 2)}${inheritanceInstructions ? `\n\nSpecial Instructions from Estate Owner:\n${inheritanceInstructions}` : ""}\n\nWrite EXACTLY these sections in this order. Each section title must be in ALL CAPS on its own line. No markdown, no dashes, no bullets — use numbered plain-text sentences for lists:\n\nIMMEDIATE ACTIONS FOR EXECUTOR\n(5 to 7 numbered plain-text sentences describing what the executor must do right now)\n\nEXECUTIVE SUMMARY\n(Professional 2-paragraph overview of the estate for the executor)\n\nDECISION FRAMEWORK\n(3 guiding questions the executor must ask before any action — written as numbered plain-text sentences)\n\nKEY RESTRICTIONS AND RULES\n(Critical rules: 4-year lock, age-based distribution schedule, multi-signature wallet requirements)\n\nMARRIAGE AND DIVORCE PROTECTION\n(Prenuptial agreement requirements, trust structure prevents direct spousal transfers, succession to children)\n\nSECURITY AND ACCESS INSTRUCTIONS\n(Multi-signature wallet structure, who holds keys, recovery steps if a key is lost or executor is unavailable — no specific private key details)\n\nALTCOIN STRATEGY\n(How executor should manage the altcoin portfolio: consolidate over time, ignore positions under $500 unless material, avoid unnecessary transactions, prioritize Bitcoin preservation)\n\nGUIDING INTENT\n(Jorge Medina's philosophy: hold Bitcoin, protect family, long-term wealth preservation, do not panic sell)\n\nRECOMMENDED NEXT STEPS\n(Immediate legal, tax, and operational steps for executor)\n\nANNUAL EXECUTOR CHECKLIST\n(8 to 10 items the executor should review each year — written as numbered plain-text sentences)${inheritanceInstructions ? "\n\nSPECIAL INSTRUCTIONS COMPLIANCE\n(Specific compliance notes derived from the estate owner's special instructions)" : ""}\n\nUse professional paragraphs throughout. No bullet dashes, no hashtags, no asterisks. Each section should be thorough enough to stand alone as an actionable reference.` }],
         }),
       });
       const data = await res.json();
@@ -6213,24 +6225,65 @@ export default function CryptoApp() {
             }).join("");
             const reportDate = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
             // Strip any residual markdown from AI summary for clean PDF output
-            const cleanAiSummary = inheritanceAiSummary
+            const cleanAiSummary = (inheritanceAiSummary || "")
               .replace(/^#+\s*/gm, "").replace(/\*\*/g, "").replace(/\*/g, "")
-              .replace(/^---+$/gm, "").replace(/^- /gm, "")
+              .replace(/^---+$/gm, "").replace(/^[-•]\s/gm, "")
               .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+            // Parse AI text into named sections keyed by ALL-CAPS title
+            const aiSec = {};
+            let curKey = "__pre__";
+            aiSec[curKey] = "";
+            for (const line of cleanAiSummary.split("\n")) {
+              const t = line.trim();
+              if (t.length > 3 && t.length < 100 && t === t.toUpperCase() && /[A-Z]{3}/.test(t)) {
+                curKey = t; aiSec[curKey] = "";
+              } else { aiSec[curKey] = (aiSec[curKey] || "") + line + "\n"; }
+            }
+            const renderAiParas = key => (aiSec[key] || "").split(/\n{2,}/).map(p => { const t = p.trim(); return t ? `<div class="ai-para">${t}</div>` : ""; }).join("");
+            const renderAiBlock = (key, pageBreak = false) => {
+              const body = renderAiParas(key);
+              if (!body) return "";
+              return `${pageBreak ? '<div class="new-page">' : "<div>"}<div class="ai-section-title">${key}</div>${body}</div>`;
+            };
             // Beneficiary count excludes iTrust (it's a Roth IRA, not a person)
             const pdfBeneficiaryCount = beneficiaries.filter(m => m.id !== "itrust").length;
+            // Composition data for State of the Estate
+            const pdfBtcUSD = (jorgeHoldings.BTC || 0) * (COIN_PRICES.BTC || 0);
+            const pdfEthUSD = (jorgeHoldings.ETH || 0) * (COIN_PRICES.ETH || 0);
+            const pdfAltUSD = jorgeCoins.filter(c => c !== "BTC" && c !== "ETH").reduce((s,c) => s + (jorgeHoldings[c]||0)*(COIN_PRICES[c]||0), 0);
+            const pdfPct = v => totalEstateUSD > 0 ? (v / totalEstateUSD * 100).toFixed(1) : "0.0";
+            const compRows = [
+              { label:"Bitcoin (BTC)", usd: pdfBtcUSD, color:"#f7931a" },
+              { label:"Ethereum (ETH)", usd: pdfEthUSD, color:"#627eea" },
+              { label:"Altcoin Portfolio", usd: pdfAltUSD, color:"#888" },
+              { label:"Roth IRA — iTrust Capital", usd: itrustUSD, color:"#22c55e" },
+            ].filter(r => r.usd > 0);
+            const compHtml = compRows.map(r => {
+              const p = pdfPct(r.usd);
+              return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;font-family:Arial,sans-serif;font-size:12px">
+                <div style="width:90px;color:#888;flex-shrink:0">${p}%</div>
+                <div style="flex:1;height:14px;background:#f5f5f5;border-radius:3px;overflow:hidden"><div style="height:14px;width:${Math.min(100,+p)}%;background:${r.color};border-radius:3px;opacity:.85"></div></div>
+                <div style="width:110px;text-align:right;font-weight:600;color:#1a1a1a">${fmtFull(r.usd)}</div>
+                <div style="width:180px;color:#555">${r.label}</div>
+              </div>`;
+            }).join("");
+            // Altcoin detail for Altcoin Strategy section
+            const altCoins = jorgeCoins.filter(c => c !== "BTC" && c !== "ETH").map(c => ({ coin:c, usd:(jorgeHoldings[c]||0)*(COIN_PRICES[c]||0) })).filter(x => x.usd > 0).sort((a,b) => b.usd - a.usd);
+            const altMaterial = altCoins.filter(x => x.usd >= 500);
+            const altNoise = altCoins.filter(x => x.usd < 500);
+            const altTableRows = altMaterial.map(x => `<tr><td class="td-bold">${x.coin}</td><td class="td-accent">${fmtFull(x.usd)}</td><td style="color:#888">${pdfPct(x.usd)}%</td><td style="color:#aaa;font-size:11px">${x.usd > 5000 ? "Monitor" : "Consolidate into BTC"}</td></tr>`).join("");
             const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Skyline Digital — Estate Plan ${reportDate}</title><style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Georgia',serif;color:#1a1a1a;background:#fff;padding:56px 64px;max-width:860px;margin:0 auto;font-size:13px;line-height:1.7}
+body{font-family:'Georgia',serif;color:#1a1a1a;background:#fff;max-width:860px;margin:0 auto;font-size:13px;line-height:1.7;padding:32px 64px}
 .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;padding-bottom:20px;border-bottom:2px solid #1a1a1a}
 .trust-name{font-size:30px;font-weight:700;letter-spacing:-0.02em;color:#1a1a1a}
 .trust-sub{font-size:12px;color:#888;margin-top:4px;font-family:Arial,sans-serif}
 .confidential{font-size:9px;color:#bbb;text-align:right;font-family:Arial,sans-serif;letter-spacing:.08em;text-transform:uppercase}
-.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin:24px 0 32px;border:1px solid #e8e8e8;border-radius:8px;overflow:hidden}
+.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin:24px 0 28px;border:1px solid #e8e8e8;border-radius:8px;overflow:hidden}
 .meta-item{text-align:center;padding:18px 10px;border-right:1px solid #e8e8e8}.meta-item:last-child{border-right:none}
 .meta-label{font-size:8px;color:#bbb;text-transform:uppercase;letter-spacing:.12em;font-family:Arial,sans-serif;margin-bottom:6px}
 .meta-value{font-size:17px;font-weight:700;color:#1a1a1a;font-family:'Georgia',serif}.meta-value.accent{color:#b85c00}
-h2{font-size:9px;font-weight:700;color:#999;margin:32px 0 14px;padding-bottom:7px;border-bottom:1px solid #ebebeb;letter-spacing:.14em;text-transform:uppercase;font-family:Arial,sans-serif}
+h2{font-size:9px;font-weight:700;color:#999;margin:28px 0 12px;padding-bottom:7px;border-bottom:1px solid #ebebeb;letter-spacing:.14em;text-transform:uppercase;font-family:Arial,sans-serif;page-break-after:avoid}
 table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px;font-family:Arial,sans-serif}
 th{background:#fafafa;padding:8px 12px;text-align:left;font-size:8px;text-transform:uppercase;color:#aaa;letter-spacing:.1em;font-weight:700;border-bottom:1px solid #eee}
 td{padding:8px 12px;border-bottom:1px solid #f5f5f5;color:#333}tr:last-child td{border-bottom:none}
@@ -6238,22 +6291,33 @@ td{padding:8px 12px;border-bottom:1px solid #f5f5f5;color:#333}tr:last-child td{
 .pill{display:inline-block;background:#f4f4f4;border-radius:3px;padding:2px 7px;font-size:10px;margin:2px 2px 2px 0;color:#555;font-family:Arial,sans-serif}
 .charts-row{display:flex;gap:32px;align-items:center;margin:8px 0 20px}
 .instructions{background:#fffcf5;border:1px solid #e8c97a;border-left:3px solid #c2880a;border-radius:6px;padding:18px 20px;font-size:12px;line-height:1.85;white-space:pre-wrap;color:#444;font-family:Arial,sans-serif;margin-bottom:4px}
-.ai-section{font-size:13px;line-height:1.95;color:#2a2a2a;font-family:'Georgia',serif}
-.ai-section-title{font-size:11px;font-weight:800;color:#1a1a1a;letter-spacing:.06em;text-transform:uppercase;font-family:Arial,sans-serif;margin:24px 0 8px;padding-bottom:5px;border-bottom:2px solid #1a1a1a;page-break-after:avoid}
-.ai-para{margin-bottom:14px;page-break-inside:avoid}
-.disc{margin-top:48px;padding-top:16px;border-top:1px solid #eee;font-size:10px;color:#bbb;line-height:1.6;font-family:Arial,sans-serif}
-.page-footer{position:fixed;bottom:0.25in;left:0.75in;font-size:9px;color:#bbb;font-family:Arial,sans-serif;letter-spacing:.06em}
+.ai-section-title{font-size:11px;font-weight:800;color:#1a1a1a;letter-spacing:.06em;text-transform:uppercase;font-family:Arial,sans-serif;margin:28px 0 10px;padding-bottom:5px;border-bottom:2px solid #1a1a1a;page-break-after:avoid}
+.ai-para{margin-bottom:14px;page-break-inside:avoid;font-size:13px;line-height:1.95;color:#2a2a2a;font-family:'Georgia',serif}
+.strategy-tag{background:#f9f9f9;border:1px solid #e0e0e0;border-left:3px solid #1a1a1a;border-radius:4px;padding:10px 14px;font-size:11px;color:#555;font-family:Arial,sans-serif;margin-top:16px}
+.tl-wrap{display:flex;flex-direction:column;gap:0;margin:12px 0 20px;font-family:Arial,sans-serif}
+.tl-item{display:flex;align-items:stretch;gap:16px}
+.tl-left{display:flex;flex-direction:column;align-items:center;width:14px;flex-shrink:0}
+.tl-dot{width:12px;height:12px;border-radius:50%;background:#1a1a1a;margin-top:3px;flex-shrink:0}
+.tl-line{width:2px;background:#e0e0e0;flex:1;margin:2px 0}
+.tl-content{padding-bottom:16px}
+.tl-year{font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#888;margin-bottom:2px}
+.tl-desc{font-size:12px;color:#1a1a1a;font-weight:600}
+.tl-note{font-size:11px;color:#888;margin-top:1px}
+.new-page{page-break-before:always}
 .alloc-page{page-break-before:always}
-h2{page-break-after:avoid}
 tr{page-break-inside:avoid}
+.disc{margin-top:40px;padding-top:14px;border-top:1px solid #eee;font-size:10px;color:#bbb;line-height:1.6;font-family:Arial,sans-serif}
+.page-footer{position:fixed;bottom:0.25in;left:0.75in;font-size:9px;color:#bbb;font-family:Arial,sans-serif;letter-spacing:.06em}
 @page{size:letter;margin:0.25in 0.75in 0.5in}
 @media print{body{padding:0}}
 </style></head><body>
 <div class="page-footer">Skyline Digital &nbsp;·&nbsp; Confidential</div>
+
+<!-- COVER: Header + Meta + State of the Estate -->
 <div class="header">
   <div>
     <div class="trust-name">Skyline Digital</div>
-    <div class="trust-sub">Estate Plan &nbsp;·&nbsp; Prepared ${reportDate} &nbsp;·&nbsp; Estate Owner: Jorge Medina &nbsp;·&nbsp; Executor: ${executor?.name || "—"}</div>
+    <div class="trust-sub">Family Office Playbook &nbsp;·&nbsp; Prepared ${reportDate} &nbsp;·&nbsp; Estate Owner: Jorge Medina &nbsp;·&nbsp; Executor: ${executor?.name || "—"}</div>
   </div>
   <div class="confidential">Confidential<br>Family use only</div>
 </div>
@@ -6263,7 +6327,18 @@ tr{page-break-inside:avoid}
   <div class="meta-item"><div class="meta-label">Executor</div><div class="meta-value" style="font-size:13px">${executor?.name || "—"}</div></div>
   <div class="meta-item"><div class="meta-label">Report Date</div><div class="meta-value" style="font-size:12px">${reportDate}</div></div>
 </div>
-${inheritanceAiSummary?`<div class="ai-section">${cleanAiSummary.split(/\n{2,}/).map(p=>{const t=p.trim();if(!t)return"";if(t===t.toUpperCase()&&t.length>3&&t.length<80)return`<div class="ai-section-title">${t}</div>`;return`<div class="ai-para">${t}</div>`;}).join("")}</div>`:""}
+<h2>State of the Estate</h2>
+${compHtml}
+<div class="strategy-tag">Strategy: High conviction, long-term Bitcoin dominant &nbsp;·&nbsp; Risk Level: High Concentration (intentional) &nbsp;·&nbsp; Liquidity: Low by design — preserve, do not liquidate</div>
+
+<!-- IMMEDIATE ACTIONS — own page -->
+${renderAiBlock("IMMEDIATE ACTIONS FOR EXECUTOR", true)}
+
+<!-- EXECUTIVE SUMMARY + DECISION FRAMEWORK -->
+${renderAiBlock("EXECUTIVE SUMMARY", true)}
+${renderAiBlock("DECISION FRAMEWORK")}
+
+<!-- INHERITANCE ALLOCATION — own page -->
 <div class="alloc-page">
 <h2>Inheritance Allocation</h2>
 <div class="charts-row">
@@ -6275,13 +6350,60 @@ ${inheritanceAiSummary?`<div class="ai-section">${cleanAiSummary.split(/\n{2,}/)
 ${beneficiaryTotals.map(b=>`<tr><td class="td-bold">${b.name}</td><td>${b.inheritedCoins.map(x=>`<span class="pill">${x.coin} ${x.pct}%</span>`).join("")}</td><td class="td-accent">${fmtFull(b.inheritedUSD)}</td><td style="color:#666">${fmtFull(b.ownUSD)}</td><td class="td-bold">${fmtFull(b.inheritedUSD+b.ownUSD)}</td></tr>`).join("")}
 </tbody></table>
 </div>
-${inheritanceInstructions?`<h2>Special Instructions from Estate Owner</h2><div class="instructions">${inheritanceInstructions.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>`:""}
-<h2>Estate Holdings — Jorge Medina</h2>
-<table><thead><tr><th>Asset</th><th>Quantity</th><th>Value (USD)</th><th>% of Estate</th></tr></thead><tbody>
-${jorgeCoins.map(c=>`<tr><td class="td-bold">${c}</td><td style="color:#666">${(jorgeHoldings[c]||0).toFixed(6)}</td><td class="td-accent">${fmtFull((jorgeHoldings[c]||0)*(COIN_PRICES[c]||0))}</td><td style="color:#888">${totalEstateUSD>0?(((jorgeHoldings[c]||0)*(COIN_PRICES[c]||0))/totalEstateUSD*100).toFixed(1)+"%" :"—"}</td></tr>`).join("")}
-${itrustUSD>0?`<tr style="background:#fffcf5"><td class="td-bold">iTrust Capital <span style="font-weight:400;color:#aaa;font-size:11px">(Roth IRA → Anseli)</span></td><td style="color:#aaa">—</td><td class="td-accent">${fmtFull(itrustUSD)}</td><td style="color:#888">${totalEstateUSD>0?(itrustUSD/totalEstateUSD*100).toFixed(1)+"%":"—"}</td></tr>`:""}
+
+<!-- DISTRIBUTION TIMELINE — own page -->
+<div class="new-page">
+<h2>Distribution Timeline</h2>
+<div class="tl-wrap">
+  <div class="tl-item"><div class="tl-left"><div class="tl-dot" style="background:#c00"></div><div class="tl-line"></div></div><div class="tl-content"><div class="tl-year">Year 0 – 4 · Full Lock Period</div><div class="tl-desc">No distributions permitted under any circumstances</div><div class="tl-note">Executor must refuse all requests. 4-year lock is absolute.</div></div></div>
+  <div class="tl-item"><div class="tl-left"><div class="tl-dot"></div><div class="tl-line"></div></div><div class="tl-content"><div class="tl-year">Age 25 · Income Only</div><div class="tl-desc">Income distributions begin — principal remains protected</div><div class="tl-note">Graduated access begins. Asset management fees apply.</div></div></div>
+  <div class="tl-item"><div class="tl-left"><div class="tl-dot"></div><div class="tl-line"></div></div><div class="tl-content"><div class="tl-year">Age 30 · 25% Access</div><div class="tl-desc">25% of trust assets become accessible to beneficiary</div><div class="tl-note">Marriage protection provisions apply before any distribution.</div></div></div>
+  <div class="tl-item"><div class="tl-left"><div class="tl-dot"></div><div class="tl-line"></div></div><div class="tl-content"><div class="tl-year">Age 35 · 50% Access</div><div class="tl-desc">50% of trust assets become accessible to beneficiary</div><div class="tl-note">Prenuptial agreement required as condition for distribution.</div></div></div>
+  <div class="tl-item"><div class="tl-left"><div class="tl-dot" style="background:#22c55e"></div><div class="tl-line" style="background:transparent"></div></div><div class="tl-content"><div class="tl-year">Age 40 · Full Access</div><div class="tl-desc">Full access to remaining trust assets</div><div class="tl-note">Successor trustee review required. All conditions must be met.</div></div></div>
+</div>
+</div>
+
+<!-- KEY RESTRICTIONS + MARRIAGE + SECURITY -->
+${renderAiBlock("KEY RESTRICTIONS AND RULES", true)}
+${renderAiBlock("MARRIAGE AND DIVORCE PROTECTION")}
+${renderAiBlock("SECURITY AND ACCESS INSTRUCTIONS")}
+
+<!-- ALTCOIN STRATEGY — own page -->
+<div class="new-page">
+<h2>Altcoin Portfolio Strategy</h2>
+<table><thead><tr><th>Asset</th><th>Value (USD)</th><th>% of Estate</th><th>Executor Guidance</th></tr></thead><tbody>
+${altTableRows}
+${altNoise.length > 0 ? `<tr style="background:#fafafa"><td style="color:#888" colspan="2"><em>${altNoise.length} position${altNoise.length>1?"s":""} under $500 — ignore unless material</em></td><td style="color:#aaa">${pdfPct(altNoise.reduce((s,x)=>s+x.usd,0))}%</td><td style="color:#aaa;font-size:11px">No action required</td></tr>` : ""}
 </tbody></table>
-<div class="disc">This document was prepared by the Skyline Digital family portfolio tracker on ${reportDate}. It is for informational and estate planning reference only and does not constitute legal or financial advice. Please consult a qualified estate planning attorney before making any distribution decisions.</div>
+${renderAiParas("ALTCOIN STRATEGY")}
+</div>
+
+<!-- GUIDING INTENT + RECOMMENDED NEXT STEPS -->
+${renderAiBlock("GUIDING INTENT")}
+${renderAiBlock("RECOMMENDED NEXT STEPS")}
+
+<!-- SPECIAL INSTRUCTIONS -->
+${inheritanceInstructions?`<h2>Special Instructions from Estate Owner</h2><div class="instructions">${inheritanceInstructions.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>`:""}
+${renderAiBlock("SPECIAL INSTRUCTIONS COMPLIANCE")}
+
+<!-- ANNUAL CHECKLIST — own page -->
+${renderAiBlock("ANNUAL EXECUTOR CHECKLIST", true)}
+
+<!-- ESTATE HOLDINGS — condensed, own page -->
+<div class="new-page">
+<h2>Estate Holdings — Jorge Medina (Major Positions)</h2>
+<table><thead><tr><th>Asset</th><th>Quantity</th><th>Value (USD)</th><th>% of Estate</th></tr></thead><tbody>
+${["BTC","ETH"].filter(c=>jorgeHoldings[c]>0).map(c=>`<tr><td class="td-bold">${c}</td><td style="color:#666">${(jorgeHoldings[c]||0).toFixed(6)}</td><td class="td-accent">${fmtFull((jorgeHoldings[c]||0)*(COIN_PRICES[c]||0))}</td><td style="color:#888">${pdfPct((jorgeHoldings[c]||0)*(COIN_PRICES[c]||0))}%</td></tr>`).join("")}
+${itrustUSD>0?`<tr style="background:#fffcf5"><td class="td-bold">iTrust Capital <span style="font-weight:400;color:#aaa;font-size:11px">(Roth IRA → Anseli)</span></td><td style="color:#aaa">—</td><td class="td-accent">${fmtFull(itrustUSD)}</td><td style="color:#888">${pdfPct(itrustUSD)}%</td></tr>`:""}
+${pdfAltUSD>0?`<tr><td class="td-bold">Altcoin Portfolio <span style="font-weight:400;color:#aaa;font-size:11px">(${altCoins.length} positions)</span></td><td style="color:#aaa">—</td><td class="td-accent">${fmtFull(pdfAltUSD)}</td><td style="color:#888">${pdfPct(pdfAltUSD)}%</td></tr>`:""}
+</tbody></table>
+<h2 style="margin-top:24px">Altcoin Positions Detail</h2>
+<table><thead><tr><th>Asset</th><th>Quantity</th><th>Value (USD)</th><th>% of Estate</th></tr></thead><tbody>
+${jorgeCoins.filter(c=>c!=="BTC"&&c!=="ETH"&&(jorgeHoldings[c]||0)*(COIN_PRICES[c]||0)>0).sort((a,b)=>((jorgeHoldings[b]||0)*(COIN_PRICES[b]||0))-((jorgeHoldings[a]||0)*(COIN_PRICES[a]||0))).map(c=>`<tr><td>${c}</td><td style="color:#888;font-size:11px">${(jorgeHoldings[c]||0).toFixed(6)}</td><td style="color:#666">${fmtFull((jorgeHoldings[c]||0)*(COIN_PRICES[c]||0))}</td><td style="color:#aaa">${pdfPct((jorgeHoldings[c]||0)*(COIN_PRICES[c]||0))}%</td></tr>`).join("")}
+</tbody></table>
+</div>
+
+<div class="disc">This document was prepared by the Skyline Digital family portfolio tracker on ${reportDate}. It is for informational and estate planning reference only and does not constitute legal or financial advice. Please consult a qualified estate planning attorney and licensed tax advisor before making any distribution or investment decisions.</div>
 </body></html>`;
             const win = window.open("", "_blank", "width=900,height=720");
             win.document.write(html); win.document.close(); win.focus();
