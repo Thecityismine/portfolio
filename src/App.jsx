@@ -2480,6 +2480,8 @@ export default function CryptoApp() {
       };
     });
     const totalEstateUSD = jorgeCoins.reduce((s, c) => s + (jorgeHoldings[c] || 0) * (COIN_PRICES[c] || 0), 0) + itrustUSDVal;
+    const executorMember = MEMBERS.find(m => m.id === inheritanceExecutorId) || MEMBERS[0];
+    const executorName = executorMember?.name || "Steffie Castro";
     const btcUSD = (jorgeHoldings.BTC || 0) * (COIN_PRICES.BTC || 0);
     const ethUSD = (jorgeHoldings.ETH || 0) * (COIN_PRICES.ETH || 0);
     const altcoinUSD = jorgeCoins.filter(c => c !== "BTC" && c !== "ETH").reduce((s, c) => s + (jorgeHoldings[c] || 0) * (COIN_PRICES[c] || 0), 0);
@@ -2493,7 +2495,7 @@ export default function CryptoApp() {
     const payload = {
       trustName: "Skyline Digital",
       estateOwner: "Jorge Medina",
-      executor: executor?.name || "Steffie Castro",
+      executor: executorName,
       date: new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
       totalEstateUSD: Math.round(totalEstateUSD),
       composition,
@@ -2512,9 +2514,10 @@ export default function CryptoApp() {
         }),
       });
       const data = await res.json();
-      if (data.error) setInheritanceAiError(data.error.message);
-      else setInheritanceAiSummary(data.content[0].text);
-    } catch(e) { setInheritanceAiError("API error: " + e.message); }
+      if (data.error) setInheritanceAiError(typeof data.error === "string" ? data.error : (data.error?.message || JSON.stringify(data.error)));
+      else if (data.content?.[0]?.text) setInheritanceAiSummary(data.content[0].text);
+      else setInheritanceAiError("No content returned — " + JSON.stringify(data).slice(0, 120));
+    } catch(e) { setInheritanceAiError("Request failed: " + e.message); }
     setInheritanceAiLoading(false);
   }
 
