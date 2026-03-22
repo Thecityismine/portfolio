@@ -2362,6 +2362,7 @@ export default function CryptoApp() {
   const [inheritanceInstructions, setInheritanceInstructions] = useState("");
   const [inheritanceInstructionsEdit, setInheritanceInstructionsEdit] = useState(false);
   const [inheritanceInstructionsDraft, setInheritanceInstructionsDraft] = useState("");
+  const [instructionsExpanded, setInstructionsExpanded] = useState(false);
 
   // AI Portfolio Advisor — per member, keyed by member.id
   const [memberAiReports, setMemberAiReports] = useState({}); // { memberId: { text, date } }
@@ -6522,37 +6523,58 @@ ${inheritanceAiSummary?`<h2>AI Executive Summary</h2><div class="ai">${inheritan
                 );
               })}
 
-              {/* Instructions card */}
+              {/* Instructions card — collapsible */}
               <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 16, padding: "16px", marginTop: 8, marginBottom: 8 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: inheritanceInstructionsEdit ? 10 : (inheritanceInstructions ? 10 : 0) }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>Special Instructions</div>
+                {/* Header row — always visible, tap to collapse/expand */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                  onClick={e => { if (!inheritanceInstructionsEdit) { e.stopPropagation(); setInstructionsExpanded(x => !x); } }}
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: inheritanceInstructionsEdit ? "default" : "pointer" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>Special Instructions</div>
+                      {!inheritanceInstructionsEdit && (
+                        <div style={{ fontSize: 10, color: "#555", transition: "transform 0.2s", transform: instructionsExpanded ? "rotate(180deg)" : "rotate(0deg)" }}>▼</div>
+                      )}
+                    </div>
                     <div style={{ fontSize: 11, color: "#444", marginTop: 2 }}>Personal notes · used in AI summary</div>
+                    {/* Collapsed preview — first line of instructions */}
+                    {!instructionsExpanded && !inheritanceInstructionsEdit && inheritanceInstructions && (
+                      <div style={{ fontSize: 11, color: "#555", marginTop: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "220px" }}>
+                        {inheritanceInstructions.split("\n")[0]}
+                      </div>
+                    )}
                   </div>
-                  <button onClick={() => {
+                  <button onClick={e => {
+                    e.stopPropagation();
                     if (inheritanceInstructionsEdit) {
                       saveInheritanceInstructions(inheritanceInstructionsDraft);
                       setInheritanceInstructionsEdit(false);
                     } else {
                       setInheritanceInstructionsDraft(inheritanceInstructions);
                       setInheritanceInstructionsEdit(true);
+                      setInstructionsExpanded(true);
                     }
-                  }} style={{ background: inheritanceInstructionsEdit ? "#00e67618" : "#ffffff0e", border: `1px solid ${inheritanceInstructionsEdit ? "#00e67644" : "#2a2a2a"}`, borderRadius: 8, padding: "5px 12px", fontSize: 11, fontWeight: 600, color: inheritanceInstructionsEdit ? "#00e676" : "#888", cursor: "pointer" }}>
+                  }} style={{ background: inheritanceInstructionsEdit ? "#00e67618" : "#ffffff0e", border: `1px solid ${inheritanceInstructionsEdit ? "#00e67644" : "#2a2a2a"}`, borderRadius: 8, padding: "5px 12px", fontSize: 11, fontWeight: 600, color: inheritanceInstructionsEdit ? "#00e676" : "#888", cursor: "pointer", flexShrink: 0, marginLeft: 10 }}>
                     {inheritanceInstructionsEdit ? "Save" : (inheritanceInstructions ? "Edit" : "+ Add")}
                   </button>
                 </div>
-                {inheritanceInstructionsEdit ? (
-                  <textarea
-                    value={inheritanceInstructionsDraft}
-                    onChange={e => setInheritanceInstructionsDraft(e.target.value)}
-                    placeholder="e.g. Do not distribute until youngest child turns 18. BTC cold wallet seed phrase is in the safe. Contact attorney John Smith at 555-0100. Steffie has POA..."
-                    rows={5}
-                    style={{ width: "100%", background: "#0a0a0a", border: "1px solid #2a2a2a", borderRadius: 10, color: "#fff", fontSize: 13, padding: "10px 12px", boxSizing: "border-box", resize: "vertical", outline: "none", lineHeight: 1.6, fontFamily: "'Inter', sans-serif" }}
-                  />
-                ) : inheritanceInstructions ? (
-                  <div style={{ fontSize: 12, color: "#aaa", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{inheritanceInstructions}</div>
-                ) : (
-                  <div style={{ fontSize: 11, color: "#2a2a2a", textAlign: "center", padding: "12px 0" }}>No instructions added yet. Tap + Add to include notes for the executor.</div>
+                {/* Expandable content */}
+                {(instructionsExpanded || inheritanceInstructionsEdit) && (
+                  <div style={{ marginTop: 12 }}>
+                    {inheritanceInstructionsEdit ? (
+                      <textarea
+                        value={inheritanceInstructionsDraft}
+                        onChange={e => setInheritanceInstructionsDraft(e.target.value)}
+                        placeholder="e.g. Do not distribute until youngest child turns 18. BTC cold wallet seed phrase is in the safe. Contact attorney John Smith at 555-0100. Steffie has POA..."
+                        rows={5}
+                        style={{ width: "100%", background: "#0a0a0a", border: "1px solid #2a2a2a", borderRadius: 10, color: "#fff", fontSize: 13, padding: "10px 12px", boxSizing: "border-box", resize: "vertical", outline: "none", lineHeight: 1.6, fontFamily: "'Inter', sans-serif" }}
+                      />
+                    ) : inheritanceInstructions ? (
+                      <div style={{ fontSize: 12, color: "#aaa", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>{inheritanceInstructions}</div>
+                    ) : (
+                      <div style={{ fontSize: 11, color: "#2a2a2a", textAlign: "center", padding: "12px 0" }}>No instructions added yet. Tap + Add to include notes for the executor.</div>
+                    )}
+                  </div>
                 )}
               </div>
 
