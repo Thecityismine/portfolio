@@ -5199,7 +5199,7 @@ export default function CryptoApp() {
                                   <div style={{ fontSize: 9, fontWeight: 800, color, letterSpacing: "0.1em", textTransform: "uppercase" }}>{s.label}</div>
                                 </div>
                               )}
-                              <div style={{ fontSize: 12, color: "#8899bb", lineHeight: 1.85, paddingLeft: s.label ? 9 : 0 }}>{s.body}</div>
+                              <div style={{ fontSize: 14, color: "#d8e0f0", lineHeight: 1.85, paddingLeft: s.label ? 9 : 0 }}>{s.body}</div>
                             </div>
                           );
                         })}
@@ -6017,77 +6017,25 @@ export default function CryptoApp() {
             </div>
 
             <div style={{ background: "#0d0d14", border: "1px solid #2a2a4a", borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#7b6ef6", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Anthropic API Key</div>
-              <div style={{ fontSize: 11, color: "#555", marginBottom: 10, lineHeight: 1.5 }}>Used for AI tax analysis in the Tax Reporting page. Encrypted on-device before sync — unreadable in Firebase without this device's key.</div>
-              <input
-                type="password"
-                value={anthropicKey}
-                onChange={e => { setAnthropicKey(e.target.value); setAnthropicSyncStatus(""); }}
-                placeholder="sk-ant-api03-..."
-                style={{ width: "100%", background: "#111", border: "1px solid #2a2a4a", borderRadius: 8, color: "#ccc", fontSize: 12, padding: "10px 12px", boxSizing: "border-box", outline: "none", fontFamily: "monospace" }}
-              />
-              <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
-                <button
-                  disabled={!anthropicKey || anthropicSyncStatus === "saving"}
-                  onClick={async () => {
-                    setAnthropicSyncStatus("saving");
-                    try {
-                      const enc = await encryptApiKey(anthropicKey);
-                      localStorage.setItem("anthropic_key_enc", enc);
-                      await fsUpdate("settings", "app", { anthropicKey: enc });
-                      setAnthropicSyncStatus("saved");
-                      setTimeout(() => setAnthropicSyncStatus(""), 3000);
-                    } catch { setAnthropicSyncStatus("error"); }
-                  }}
-                  style={{ background: anthropicSyncStatus === "saved" ? "#00c853" : anthropicSyncStatus === "error" ? "#ff4444" : "#7b6ef6", border: "none", borderRadius: 7, color: "#fff", fontSize: 11, fontWeight: 700, padding: "6px 14px", cursor: anthropicKey ? "pointer" : "not-allowed", opacity: anthropicKey ? 1 : 0.4 }}>
-                  {anthropicSyncStatus === "saving" ? "Encrypting..." : anthropicSyncStatus === "saved" ? "Saved ✓" : anthropicSyncStatus === "error" ? "Error ✗" : "Save & Sync"}
-                </button>
-                {anthropicKey && (
-                  <button onClick={() => { setAnthropicKey(""); localStorage.removeItem("anthropic_key_enc"); fsUpdate("settings","app",{anthropicKey:""}).catch(console.warn); setAnthropicSyncStatus(""); }}
-                    style={{ background: "none", border: "1px solid #333", borderRadius: 7, color: "#555", fontSize: 11, padding: "6px 12px", cursor: "pointer" }}>
-                    Clear
-                  </button>
-                )}
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#7b6ef6", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>Anthropic API Key</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#111", border: "1px solid #2a2a4a", borderRadius: 10, padding: "12px 14px" }}>
+                <div style={{ width: 28, height: 28, borderRadius: 8, background: "linear-gradient(135deg,#1a1a3a,#0d0d20)", border: "1px solid #3a3a6a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>🔒</div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#00e676", marginBottom: 2 }}>Secured on server</div>
+                  <div style={{ fontSize: 11, color: "#555", lineHeight: 1.4 }}>API key is stored as a Vercel environment variable — never sent to the browser.</div>
+                </div>
               </div>
-              {anthropicKey && anthropicSyncStatus === "" && <div style={{ fontSize: 11, color: "#555", marginTop: 6 }}>Key entered — press Save & Sync to encrypt and store</div>}
             </div>
             <div style={{ background: "#0d1414", border: "1px solid #1a3a2a", borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#00e676", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>CoinMarketCap API Key</div>
-              <div style={{ fontSize: 11, color: "#555", marginBottom: 10, lineHeight: 1.5 }}>Used for live price data. Encrypted on-device before sync — stored as ciphertext in Firebase, readable only on this device.</div>
-              <input
-                type="text"
-                value={cmcKey}
-                onChange={e => { setCmcKey(e.target.value); setCmcSyncStatus(""); }}
-                placeholder="Enter CoinMarketCap API key..."
-                style={{ width: "100%", background: "#111", border: "1px solid #1a3a2a", borderRadius: 8, color: "#ccc", fontSize: 12, padding: "10px 12px", boxSizing: "border-box", outline: "none", fontFamily: "monospace" }}
-              />
-              {cmcKey
-                ? <div style={{ fontSize: 11, color: priceStatus === "live" ? "#00e676" : priceStatus === "error" ? "#ff4444" : "#f7931a", marginTop: 6 }}>
-                    {priceStatus === "live" ? `✓ Live prices active` : priceStatus === "loading" ? "⟳ Fetching prices..." : priceStatus === "error" ? "✗ API error — check key" : `Key entered — press Save & Sync to encrypt and store`}
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#00e676", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>CoinMarketCap API Key</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#111", border: "1px solid #1a3a2a", borderRadius: 10, padding: "12px 14px" }}>
+                <div style={{ width: 28, height: 28, borderRadius: 8, background: "linear-gradient(135deg,#0d1a0d,#060e06)", border: "1px solid #1a4a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>🔒</div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: priceStatus === "live" ? "#00e676" : "#f7931a", marginBottom: 2 }}>
+                    {priceStatus === "live" ? "✓ Live prices active — secured on server" : priceStatus === "loading" ? "⟳ Fetching live prices…" : "Secured on server"}
                   </div>
-                : <div style={{ fontSize: 11, color: "#555", marginTop: 6 }}>No key set. Get one at coinmarketcap.com/api</div>}
-              <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
-                <button
-                  disabled={!cmcKey || cmcSyncStatus === "saving"}
-                  onClick={async () => {
-                    setCmcSyncStatus("saving");
-                    try {
-                      const enc = await encryptApiKey(cmcKey);
-                      localStorage.setItem("cmc_key_enc", enc);
-                      await fsUpdate("settings", "app", { cmcKey: enc });
-                      setCmcSyncStatus("saved"); setTimeout(() => setCmcSyncStatus(""), 3000);
-                    } catch (err) { console.warn("Sync failed:", err.message); setCmcSyncStatus("error:" + err.message); }
-                  }}
-                  style={{ background: cmcSyncStatus.startsWith("saved") ? "#00c853" : cmcSyncStatus.startsWith("error") ? "#ff4444" : "#00e676", border: "none", borderRadius: 7, color: "#000", fontSize: 11, fontWeight: 700, padding: "6px 14px", cursor: cmcKey ? "pointer" : "not-allowed", opacity: cmcKey ? 1 : 0.4 }}>
-                  {cmcSyncStatus === "saving" ? "Encrypting..." : cmcSyncStatus.startsWith("saved") ? "Saved ✓" : cmcSyncStatus.startsWith("error") ? "Error ✗" : "Save & Sync"}
-                </button>
-                {cmcKey && (
-                  <button onClick={() => { setCmcKey(""); localStorage.removeItem("cmc_key_enc"); setCmcSyncStatus(""); fsUpdate("settings", "app", { cmcKey: "" }).catch(console.warn); }}
-                    style={{ background: "none", border: "1px solid #333", borderRadius: 7, color: "#555", fontSize: 11, padding: "6px 14px", cursor: "pointer" }}>
-                    Clear
-                  </button>
-                )}
-                {cmcSyncStatus.startsWith("error") && <span style={{ fontSize: 11, color: "#ff4444" }}>{cmcSyncStatus.slice(6) || "Write failed"}</span>}
+                  <div style={{ fontSize: 11, color: "#555", lineHeight: 1.4 }}>API key is stored as a Vercel environment variable — never sent to the browser.</div>
+                </div>
               </div>
             </div>
             <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden", marginBottom: 14 }}>
@@ -6781,7 +6729,7 @@ ${inheritanceAiSummary?`<h2>AI Executive Summary</h2><div class="ai">${inheritan
                               <div style={{ height: "100%", width: `${b.total / barMax * 100}%`, background: b.color, borderRadius: 3, opacity: 0.85 }} />
                             </div>
                             {b.inheritedBtcQty > 0 && (
-                              <div style={{ fontSize: 10, color: "#444", marginTop: 3 }}>
+                              <div style={{ fontSize: 10, color: "#666", marginTop: 3 }}>
                                 Inherits {b.inheritedBtcQty.toFixed(5)} BTC
                                 {b.ownBtcQty > 0 ? ` + owns ${b.ownBtcQty.toFixed(5)} BTC` : ""}
                               </div>
@@ -6793,10 +6741,10 @@ ${inheritanceAiSummary?`<h2>AI Executive Summary</h2><div class="ai">${inheritan
                   )}
 
                   {/* Multi-generation note */}
-                  <div style={{ background: "#0a0a0f", border: "1px solid #1a1a2a", borderRadius: 12, padding: "12px 14px" }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: "#3a3a5a", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Generational Note</div>
-                    <div style={{ fontSize: 11, color: "#3a3a5a", lineHeight: 1.7 }}>
-                      If this BTC is never sold and held by the next generation, a single Bitcoin reaching $1M would make every beneficiary a millionaire. At $5M per BTC, this family's stack becomes a {fmtM(totalBTC * 5000000)} generational trust.
+                  <div style={{ background: "linear-gradient(135deg,#0a0a18,#080812)", border: "1px solid #2a2a4a", borderRadius: 12, padding: "14px 16px" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: "#7b6ef6", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Generational Note</div>
+                    <div style={{ fontSize: 13, color: "#b0b8d0", lineHeight: 1.75 }}>
+                      If this BTC is never sold and held by the next generation, a single Bitcoin reaching $1M would make every beneficiary a millionaire. At $5M per BTC, this family's stack becomes a <span style={{ color: "#f7931a", fontWeight: 700 }}>{fmtM(totalBTC * 5000000)}</span> generational trust.
                     </div>
                   </div>
                 </div>
