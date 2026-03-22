@@ -6659,7 +6659,7 @@ ${inheritanceAiSummary?`<h2>AI Executive Summary</h2><div class="ai">${inheritan
               const fmtM = n => n >= 1e9 ? `$${(n/1e9).toFixed(2)}B` : n >= 1e6 ? `$${(n/1e6).toFixed(2)}M` : fmt(n);
 
               return (
-                <div style={{ padding: "0 18px 24px" }}>
+                <div style={{ paddingBottom: 24 }}>
                   <div style={{ borderTop: "1px solid #141414", paddingTop: 20, marginBottom: 14 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: "#555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Generational Wealth Simulator</div>
                     <div style={{ fontSize: 12, color: "#444" }}>Project estate value at future BTC prices</div>
