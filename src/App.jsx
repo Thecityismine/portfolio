@@ -6400,48 +6400,53 @@ ${inheritanceAiSummary?`<h2>AI Executive Summary</h2><div class="ai-section">${c
               )}
 
               {/* Beneficiary section header */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>
                   Beneficiaries <span style={{ fontSize: 11, fontWeight: 400, color: "#555" }}>({beneficiaries.length})</span>
                 </div>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <button onClick={() => setManageBeneficiariesOpen(v => !v)}
-                    style={{ background: manageBeneficiariesOpen ? "#f7931a18" : "#ffffff0e", border: `1px solid ${manageBeneficiariesOpen ? "#f7931a44" : "#2a2a2a"}`, borderRadius: 8, padding: "5px 12px", fontSize: 11, fontWeight: 600, color: manageBeneficiariesOpen ? "#f7931a" : "#888", cursor: "pointer" }}>
-                    {manageBeneficiariesOpen ? "Done" : "+ Manage"}
-                  </button>
-                  <button onClick={() => {
-                    if (inheritanceEditMode) { setInheritanceEditMode(false); setInheritanceDraft({}); }
-                    else { setInheritanceDraft(JSON.parse(JSON.stringify(inheritanceAllocs))); setInheritanceEditMode(true); }
-                  }} style={{ background: inheritanceEditMode ? "#ff4a4a18" : "#ffffff0e", border: `1px solid ${inheritanceEditMode ? "#ff4a4a44" : "#2a2a2a"}`, borderRadius: 8, padding: "5px 12px", fontSize: 11, fontWeight: 600, color: inheritanceEditMode ? "#ff6b6b" : "#888", cursor: "pointer" }}>
-                    {inheritanceEditMode ? "Cancel" : "Edit Allocations"}
-                  </button>
-                </div>
+                <button onClick={() => {
+                  if (inheritanceEditMode) { setInheritanceEditMode(false); setInheritanceDraft({}); }
+                  else { setInheritanceDraft(JSON.parse(JSON.stringify(inheritanceAllocs))); setInheritanceEditMode(true); }
+                }} style={{ background: inheritanceEditMode ? "#ff4a4a18" : "#ffffff0e", border: `1px solid ${inheritanceEditMode ? "#ff4a4a44" : "#2a2a2a"}`, borderRadius: 8, padding: "5px 12px", fontSize: 11, fontWeight: 600, color: inheritanceEditMode ? "#ff6b6b" : "#888", cursor: "pointer" }}>
+                  {inheritanceEditMode ? "Cancel" : "Edit Allocations"}
+                </button>
               </div>
 
-              {/* Beneficiary selector */}
-              {manageBeneficiariesOpen && (
-                <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "14px 16px", marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, color: "#555", marginBottom: 12 }}>Select who receives an inheritance from Jorge's portfolio.</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {allNonJorge.map(m => {
-                      const included = activeBeneficiaryIds.includes(m.id);
-                      return (
-                        <div key={m.id} onClick={() => {
-                          const next = included ? activeBeneficiaryIds.filter(id => id !== m.id) : [...activeBeneficiaryIds, m.id];
-                          saveInheritanceAllocs(inheritanceAllocs, inheritanceExecutorId, next);
-                          if (inheritanceEditMode) { setInheritanceEditMode(false); setInheritanceDraft({}); }
-                        }} style={{ display: "flex", alignItems: "center", gap: 12, cursor: "pointer", padding: "4px 0" }}>
-                          <div style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${included ? "#00e676" : "#333"}`, background: included ? "#00e67622" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                            {included && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#00e676" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>}
-                          </div>
-                          <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#1a1a1a", border: "1px solid #2a2a2a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#888", flexShrink: 0 }}>{m.avatar}</div>
-                          <span style={{ fontSize: 13, color: included ? "#fff" : "#666", fontWeight: included ? 600 : 400 }}>{m.name}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
+              {/* Beneficiary chips + dropdown selector */}
+              <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: "12px 14px", marginBottom: 12 }}>
+                {/* Selected chips */}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: beneficiaries.length > 0 ? 10 : 0 }}>
+                  {beneficiaries.map(m => (
+                    <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 6, background: "#1a1a2a", border: "1px solid #2a2a4a", borderRadius: 20, padding: "4px 10px 4px 6px" }}>
+                      <div style={{ width: 22, height: 22, borderRadius: "50%", background: "#252540", border: "1px solid #3a3a6a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: "#7b6ef6", flexShrink: 0 }}>{m.avatar}</div>
+                      <span style={{ fontSize: 12, color: "#ccc", fontWeight: 500 }}>{m.name.split(" ")[0]}</span>
+                      <button onClick={() => {
+                        const next = activeBeneficiaryIds.filter(id => id !== m.id);
+                        saveInheritanceAllocs(inheritanceAllocs, inheritanceExecutorId, next);
+                        if (inheritanceEditMode) { setInheritanceEditMode(false); setInheritanceDraft({}); }
+                      }} style={{ background: "none", border: "none", color: "#444", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "0 0 0 2px", display: "flex", alignItems: "center" }}>×</button>
+                    </div>
+                  ))}
                 </div>
-              )}
+                {/* Add beneficiary dropdown */}
+                {(() => {
+                  const available = allNonJorge.filter(m => !activeBeneficiaryIds.includes(m.id));
+                  if (!available.length) return <div style={{ fontSize: 11, color: "#333" }}>All eligible members added.</div>;
+                  return (
+                    <select
+                      value=""
+                      onChange={e => {
+                        if (!e.target.value) return;
+                        const next = [...activeBeneficiaryIds, e.target.value];
+                        saveInheritanceAllocs(inheritanceAllocs, inheritanceExecutorId, next);
+                      }}
+                      style={{ width: "100%", background: "#0d0d0d", border: "1px solid #2a2a2a", borderRadius: 8, color: "#777", fontSize: 12, padding: "8px 10px", outline: "none", cursor: "pointer", appearance: "auto" }}>
+                      <option value="">+ Add beneficiary…</option>
+                      {available.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                    </select>
+                  );
+                })()}
+              </div>
 
               {/* Edit panel — BTC / ETH / Altcoins only */}
               {inheritanceEditMode && (
