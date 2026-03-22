@@ -2455,26 +2455,36 @@ export default function CryptoApp() {
     setInheritanceAiSummary("");
     setInheritanceAiError("");
     const jorgeCoins = Object.keys(jorgeHoldings).filter(c => jorgeHoldings[c] > 0.00001);
-    const beneficiaries = MEMBERS.filter(m => m.id !== "jorge");
+    // Exclude itrust — it is a Roth IRA account, not a beneficiary person
+    const beneficiaries = MEMBERS.filter(m => m.id !== "jorge" && m.id !== "itrust");
+    const itrustMember = MEMBERS.find(m => m.id === "itrust");
+    const itrustUSDVal = itrustMember?.usd || 0;
     const beneficiaryData = beneficiaries.map(m => {
       const coinBreakdown = jorgeCoins.filter(c => (allocs[c]?.[m.id] || 0) > 0).map(c => ({
         coin: c, pct: allocs[c][m.id],
         qty: +(jorgeHoldings[c] * allocs[c][m.id] / 100).toFixed(6),
         usd: Math.round(jorgeHoldings[c] * allocs[c][m.id] / 100 * (COIN_PRICES[c] || 0)),
       }));
+      const itrustPct = allocs._itrust?.[m.id] || 0;
+      const itrustInherited = Math.round(itrustUSDVal * itrustPct / 100);
+      const inheritedUSD = Math.round(coinBreakdown.reduce((s, x) => s + x.usd, 0)) + itrustInherited;
       return {
         name: m.name,
         ownHoldingsUSD: Math.round(m.usd || 0),
-        inheritedUSD: Math.round(coinBreakdown.reduce((s, x) => s + x.usd, 0)),
-        combinedUSD: Math.round((m.usd || 0) + coinBreakdown.reduce((s, x) => s + x.usd, 0)),
+        inheritedUSD,
+        combinedUSD: Math.round((m.usd || 0) + inheritedUSD),
         coins: coinBreakdown,
+        itrustInherited: itrustInherited > 0 ? itrustInherited : undefined,
       };
     });
-    const totalEstateUSD = jorgeCoins.reduce((s, c) => s + (jorgeHoldings[c] || 0) * (COIN_PRICES[c] || 0), 0);
+    const totalEstateUSD = jorgeCoins.reduce((s, c) => s + (jorgeHoldings[c] || 0) * (COIN_PRICES[c] || 0), 0) + itrustUSDVal;
     const payload = {
-      estateOwner: "Jorge Medina", date: new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
+      trustName: "Skyline Digital",
+      estateOwner: "Jorge Medina",
+      date: new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
       totalEstateUSD: Math.round(totalEstateUSD),
-      estateHoldings: jorgeCoins.map(c => ({ coin: c, qty: jorgeHoldings[c], usd: Math.round((jorgeHoldings[c] || 0) * (COIN_PRICES[c] || 0)) })),
+      itrustCapitalRothIRA: { value: Math.round(itrustUSDVal), note: "100% allocated to Anseli Medina per estate plan" },
+      beneficiaryCount: beneficiaries.length,
       beneficiaries: beneficiaryData,
     };
     try {
@@ -2482,9 +2492,9 @@ export default function CryptoApp() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514", max_tokens: 1200,
-          system: "You are a wealth management and estate planning assistant. Generate professional, clear estate planning summaries for families holding cryptocurrency. Be specific about numbers. Note this is for planning purposes only and they should consult an estate attorney.",
-          messages: [{ role: "user", content: `Generate a formal estate planning executive summary for the executor as of ${payload.date}.\n\nEstate Data:\n${JSON.stringify(payload, null, 2)}${inheritanceInstructions ? `\n\nSpecial Instructions from Estate Owner:\n${inheritanceInstructions}` : ""}\n\nProvide:\n1. Executive Summary (2-3 sentences)\n2. Estate Overview (total value, major holdings)\n3. Allocation Summary per beneficiary (name, inherited amount, own holdings, combined total)\n4. Key Notes for Executor (access, security, distribution timing)${inheritanceInstructions ? "\n5. Notes on Special Instructions" : ""}\n${inheritanceInstructions ? "6" : "5"}. Recommended Next Steps\n\nKeep it professional, specific, and under 400 words.` }],
+          model: "claude-sonnet-4-20250514", max_tokens: 1400,
+          system: "You are a senior estate planning attorney drafting a formal executive summary for a family digital asset trust called Skyline Digital. Write in polished, professional prose suitable for email or print. Use plain text only — absolutely no markdown symbols (no #, ##, **, *, ---, -, bullets). Use section titles in ALL CAPS on their own line followed by a blank line. Write in complete paragraphs. Be specific with dollar amounts. Note this is for planning purposes and they should consult an estate attorney.",
+          messages: [{ role: "user", content: `Draft a formal estate planning executive summary for the executor of the Skyline Digital trust as of ${payload.date}.\n\nEstate Data:\n${JSON.stringify(payload, null, 2)}${inheritanceInstructions ? `\n\nSpecial Instructions from Estate Owner:\n${inheritanceInstructions}` : ""}\n\nStructure the document with these sections (ALL CAPS titles, plain text body, no markdown):\n\nEXECUTIVE SUMMARY\nESTATE OVERVIEW\nBENEFICIARY ALLOCATION SUMMARY\nKEY NOTES FOR EXECUTOR${inheritanceInstructions ? "\nSPECIAL INSTRUCTIONS COMPLIANCE" : ""}\nRECOMMENDED NEXT STEPS\n\nUse professional paragraphs. No bullet dashes, no hashtags, no asterisks. Ready to paste into an email.` }],
         }),
       });
       const data = await res.json();
@@ -6200,49 +6210,68 @@ export default function CryptoApp() {
               return `<g><rect x="110" y="${y}" width="${bw}" height="26" rx="5" fill="${b.color}" opacity="0.85"/><text x="104" y="${y+18}" text-anchor="end" font-size="11" fill="#555">${b.name.split(" ")[0]}</text><text x="${114+bw}" y="${y+18}" font-size="11" fill="${b.color}" font-weight="600">${fmtFull(b.inheritedUSD)}</text></g>`;
             }).join("");
             const reportDate = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-            const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Medina Estate Plan — ${reportDate}</title><style>
-*{margin:0;padding:0;box-sizing:border-box}body{font-family:Georgia,serif;color:#111;padding:48px;max-width:820px;margin:0 auto}
-h1{font-size:26px;font-weight:700;color:#111;margin-bottom:4px}
-h2{font-size:12px;font-weight:700;color:#888;margin:28px 0 12px;border-bottom:1px solid #e5e5e5;padding-bottom:6px;letter-spacing:.1em;text-transform:uppercase}
-.subtitle{font-size:12px;color:#888;margin-bottom:28px}.confidential{font-size:10px;color:#bbb;text-align:right}
-.meta{display:flex;gap:0;margin-bottom:28px;border:1px solid #eee;border-radius:10px;overflow:hidden}
-.meta-item{flex:1;text-align:center;padding:16px 8px;border-right:1px solid #eee}.meta-item:last-child{border-right:none}
-.meta-label{font-size:9px;color:#aaa;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px}
-.meta-value{font-size:18px;font-weight:700;color:#111}.meta-value.or{color:#c2620a}
-.charts-row{display:flex;gap:24px;align-items:center;margin-bottom:4px}
-table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:4px}
-th{background:#f7f7f7;padding:7px 10px;text-align:left;font-size:9px;text-transform:uppercase;color:#999;letter-spacing:.06em;font-weight:700;font-family:Arial,sans-serif}
-td{padding:7px 10px;border-bottom:1px solid #f3f3f3;font-family:Arial,sans-serif;font-size:12px}tr:last-child td{border-bottom:none}
-.pill{display:inline-block;background:#f5f5f5;border-radius:4px;padding:1px 6px;font-size:10px;margin:1px;color:#666;font-family:Arial,sans-serif}
-.instructions{background:#fffbf0;border:1px solid #f59e0b;border-left:4px solid #f59e0b;border-radius:6px;padding:16px;font-size:12px;line-height:1.8;white-space:pre-wrap;color:#555;font-family:Arial,sans-serif}
-.ai{font-size:13px;line-height:1.9;color:#333;white-space:pre-wrap;font-family:Arial,sans-serif}
-.disc{margin-top:36px;padding-top:14px;border-top:1px solid #eee;font-size:10px;color:#bbb;line-height:1.6;font-family:Arial,sans-serif}
-@media print{body{padding:32px}@page{margin:1cm}}
+            // Strip any residual markdown from AI summary for clean PDF output
+            const cleanAiSummary = inheritanceAiSummary
+              .replace(/^#+\s*/gm, "").replace(/\*\*/g, "").replace(/\*/g, "")
+              .replace(/^---+$/gm, "").replace(/^- /gm, "")
+              .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+            // Beneficiary count excludes iTrust (it's a Roth IRA, not a person)
+            const pdfBeneficiaryCount = beneficiaries.filter(m => m.id !== "itrust").length;
+            const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Skyline Digital — Estate Plan ${reportDate}</title><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Georgia',serif;color:#1a1a1a;background:#fff;padding:56px 64px;max-width:860px;margin:0 auto;font-size:13px;line-height:1.7}
+.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;padding-bottom:20px;border-bottom:2px solid #1a1a1a}
+.trust-name{font-size:30px;font-weight:700;letter-spacing:-0.02em;color:#1a1a1a}
+.trust-sub{font-size:12px;color:#888;margin-top:4px;font-family:Arial,sans-serif}
+.confidential{font-size:9px;color:#bbb;text-align:right;font-family:Arial,sans-serif;letter-spacing:.08em;text-transform:uppercase}
+.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin:24px 0 32px;border:1px solid #e8e8e8;border-radius:8px;overflow:hidden}
+.meta-item{text-align:center;padding:18px 10px;border-right:1px solid #e8e8e8}.meta-item:last-child{border-right:none}
+.meta-label{font-size:8px;color:#bbb;text-transform:uppercase;letter-spacing:.12em;font-family:Arial,sans-serif;margin-bottom:6px}
+.meta-value{font-size:17px;font-weight:700;color:#1a1a1a;font-family:'Georgia',serif}.meta-value.accent{color:#b85c00}
+h2{font-size:9px;font-weight:700;color:#999;margin:32px 0 14px;padding-bottom:7px;border-bottom:1px solid #ebebeb;letter-spacing:.14em;text-transform:uppercase;font-family:Arial,sans-serif}
+table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px;font-family:Arial,sans-serif}
+th{background:#fafafa;padding:8px 12px;text-align:left;font-size:8px;text-transform:uppercase;color:#aaa;letter-spacing:.1em;font-weight:700;border-bottom:1px solid #eee}
+td{padding:8px 12px;border-bottom:1px solid #f5f5f5;color:#333}tr:last-child td{border-bottom:none}
+.td-bold{font-weight:700;color:#1a1a1a}.td-accent{font-weight:700;color:#b85c00}
+.pill{display:inline-block;background:#f4f4f4;border-radius:3px;padding:2px 7px;font-size:10px;margin:2px 2px 2px 0;color:#555;font-family:Arial,sans-serif}
+.charts-row{display:flex;gap:32px;align-items:center;margin:8px 0 20px}
+.instructions{background:#fffcf5;border:1px solid #e8c97a;border-left:3px solid #c2880a;border-radius:6px;padding:18px 20px;font-size:12px;line-height:1.85;white-space:pre-wrap;color:#444;font-family:Arial,sans-serif;margin-bottom:4px}
+.ai-section{font-size:13px;line-height:1.95;color:#2a2a2a;font-family:'Georgia',serif}
+.ai-section-title{font-size:9px;font-weight:700;color:#999;letter-spacing:.14em;text-transform:uppercase;font-family:Arial,sans-serif;margin:20px 0 8px;padding-bottom:4px;border-bottom:1px solid #ebebeb}
+.ai-para{margin-bottom:14px}
+.disc{margin-top:48px;padding-top:16px;border-top:1px solid #eee;font-size:10px;color:#bbb;line-height:1.6;font-family:Arial,sans-serif}
+@media print{body{padding:32px 40px}@page{margin:1.5cm;size:letter}}
 </style></head><body>
-<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
-<div><h1>Medina Family Estate Plan</h1><div class="subtitle">Prepared ${reportDate} &nbsp;·&nbsp; Estate Owner: Jorge Medina &nbsp;·&nbsp; Executor: ${executor?.name || "—"}</div></div>
-<div class="confidential">CONFIDENTIAL<br>For family use only</div></div>
+<div class="header">
+  <div>
+    <div class="trust-name">Skyline Digital</div>
+    <div class="trust-sub">Estate Plan &nbsp;·&nbsp; Prepared ${reportDate} &nbsp;·&nbsp; Estate Owner: Jorge Medina &nbsp;·&nbsp; Executor: ${executor?.name || "—"}</div>
+  </div>
+  <div class="confidential">Confidential<br>Family use only</div>
+</div>
 <div class="meta">
-<div class="meta-item"><div class="meta-label">Total Estate Value</div><div class="meta-value or">${fmtFull(totalEstateUSD)}</div></div>
-<div class="meta-item"><div class="meta-label">Beneficiaries</div><div class="meta-value">${beneficiaries.length}</div></div>
-<div class="meta-item"><div class="meta-label">Executor</div><div class="meta-value" style="font-size:14px">${executor?.name || "—"}</div></div>
-<div class="meta-item"><div class="meta-label">Report Date</div><div class="meta-value" style="font-size:13px">${reportDate}</div></div></div>
+  <div class="meta-item"><div class="meta-label">Total Estate Value</div><div class="meta-value accent">${fmtFull(totalEstateUSD)}</div></div>
+  <div class="meta-item"><div class="meta-label">Beneficiaries</div><div class="meta-value">${pdfBeneficiaryCount}</div></div>
+  <div class="meta-item"><div class="meta-label">Executor</div><div class="meta-value" style="font-size:13px">${executor?.name || "—"}</div></div>
+  <div class="meta-item"><div class="meta-label">Report Date</div><div class="meta-value" style="font-size:12px">${reportDate}</div></div>
+</div>
 <h2>Estate Holdings — Jorge Medina</h2>
 <table><thead><tr><th>Asset</th><th>Quantity</th><th>Value (USD)</th><th>% of Estate</th></tr></thead><tbody>
-${jorgeCoins.map(c=>`<tr><td style="font-weight:600">${c}</td><td>${(jorgeHoldings[c]||0).toFixed(6)}</td><td style="font-weight:600">${fmtFull((jorgeHoldings[c]||0)*(COIN_PRICES[c]||0))}</td><td>${totalEstateUSD>0?(((jorgeHoldings[c]||0)*(COIN_PRICES[c]||0))/totalEstateUSD*100).toFixed(1)+"%" :"—"}</td></tr>`).join("")}
-${itrustUSD>0?`<tr><td style="font-weight:600">iTrust Capital (Roth IRA)</td><td>—</td><td style="font-weight:600">${fmtFull(itrustUSD)}</td><td>${totalEstateUSD>0?(itrustUSD/totalEstateUSD*100).toFixed(1)+"%":"—"}</td></tr>`:""}
+${jorgeCoins.map(c=>`<tr><td class="td-bold">${c}</td><td style="color:#666">${(jorgeHoldings[c]||0).toFixed(6)}</td><td class="td-accent">${fmtFull((jorgeHoldings[c]||0)*(COIN_PRICES[c]||0))}</td><td style="color:#888">${totalEstateUSD>0?(((jorgeHoldings[c]||0)*(COIN_PRICES[c]||0))/totalEstateUSD*100).toFixed(1)+"%" :"—"}</td></tr>`).join("")}
+${itrustUSD>0?`<tr style="background:#fffcf5"><td class="td-bold">iTrust Capital <span style="font-weight:400;color:#aaa;font-size:11px">(Roth IRA → Anseli)</span></td><td style="color:#aaa">—</td><td class="td-accent">${fmtFull(itrustUSD)}</td><td style="color:#888">${totalEstateUSD>0?(itrustUSD/totalEstateUSD*100).toFixed(1)+"%":"—"}</td></tr>`:""}
 </tbody></table>
 <h2>Inheritance Allocation</h2>
 <div class="charts-row">
-<div><svg width="300" height="300" viewBox="0 0 300 300">${piePaths}<text x="150" y="145" text-anchor="middle" font-size="11" fill="#999" font-family="Arial,sans-serif">Total Estate</text><text x="150" y="164" text-anchor="middle" font-size="14" font-weight="700" fill="#111" font-family="Georgia,serif">${fmtFull(totalEstateUSD)}</text></svg></div>
-<div style="padding:20px 0;font-size:13px;font-family:Arial,sans-serif">${pieLegend}</div></div>
-<svg width="100%" height="${barH}" viewBox="0 0 520 ${barH}" style="margin:16px 0 24px">${barPaths}</svg>
+  <div><svg width="280" height="280" viewBox="0 0 300 300">${piePaths}<text x="150" y="143" text-anchor="middle" font-size="10" fill="#bbb" font-family="Arial,sans-serif" letter-spacing="1">ESTATE</text><text x="150" y="163" text-anchor="middle" font-size="15" font-weight="700" fill="#1a1a1a" font-family="Georgia,serif">${fmtFull(totalEstateUSD)}</text></svg></div>
+  <div style="padding:16px 0;font-size:12px;font-family:Arial,sans-serif;color:#333">${pieLegend}</div>
+</div>
+<svg width="100%" height="${barH}" viewBox="0 0 520 ${barH}" style="margin:8px 0 28px">${barPaths}</svg>
 <table><thead><tr><th>Beneficiary</th><th>Inherited Assets</th><th>Inherited Value</th><th>Own Holdings</th><th>Combined Total</th></tr></thead><tbody>
-${beneficiaryTotals.map(b=>`<tr><td style="font-weight:700">${b.name}</td><td>${b.inheritedCoins.map(x=>`<span class="pill">${x.coin} ${x.pct}%</span>`).join(" ")}</td><td style="font-weight:700;color:#c2620a">${fmtFull(b.inheritedUSD)}</td><td>${fmtFull(b.ownUSD)}</td><td style="font-weight:700">${fmtFull(b.inheritedUSD+b.ownUSD)}</td></tr>`).join("")}
+${beneficiaryTotals.map(b=>`<tr><td class="td-bold">${b.name}</td><td>${b.inheritedCoins.map(x=>`<span class="pill">${x.coin} ${x.pct}%</span>`).join("")}</td><td class="td-accent">${fmtFull(b.inheritedUSD)}</td><td style="color:#666">${fmtFull(b.ownUSD)}</td><td class="td-bold">${fmtFull(b.inheritedUSD+b.ownUSD)}</td></tr>`).join("")}
 </tbody></table>
 ${inheritanceInstructions?`<h2>Special Instructions from Estate Owner</h2><div class="instructions">${inheritanceInstructions.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>`:""}
-${inheritanceAiSummary?`<h2>AI Executive Summary</h2><div class="ai">${inheritanceAiSummary.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>`:""}
-<div class="disc">This document was generated by the Medina Family Portfolio Tracker on ${reportDate}. It is for informational and estate planning reference only and does not constitute legal or financial advice. Please consult a qualified estate attorney before making any distribution decisions.</div>
+${inheritanceAiSummary?`<h2>AI Executive Summary</h2><div class="ai-section">${cleanAiSummary.split(/\n{2,}/).map(p=>{const t=p.trim();if(!t)return"";if(t===t.toUpperCase()&&t.length>3&&t.length<80)return`<div class="ai-section-title">${t}</div>`;return`<div class="ai-para">${t}</div>`;}).join("")}</div>`:""}
+<div class="disc">This document was prepared by the Skyline Digital family portfolio tracker on ${reportDate}. It is for informational and estate planning reference only and does not constitute legal or financial advice. Please consult a qualified estate planning attorney before making any distribution decisions.</div>
 </body></html>`;
             const win = window.open("", "_blank", "width=900,height=720");
             win.document.write(html); win.document.close(); win.focus();
