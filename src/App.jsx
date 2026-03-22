@@ -1495,7 +1495,6 @@ function TaxPage({ fmtFull, TRANSACTIONS, MEMBERS, COIN_PRICES, anthropicKey: gl
   const memberName = MEMBERS.find(m=>m.id===member)?.name || member;
 
   async function generateAiSummary() {
-    if (!apiKey.trim()) { setAiError("Enter your Anthropic API key in Settings first."); return; }
     if (!disposals || disposals.length === 0) { setAiError("Generate the report first."); return; }
     setAiLoading(true);
     setAiSummary("");
@@ -2452,7 +2451,6 @@ export default function CryptoApp() {
   }
 
   async function generateInheritanceSummary(jorgeHoldings, allocs) {
-    if (!anthropicKey) { setInheritanceAiError("Add Anthropic API key in Settings first."); return; }
     setInheritanceAiLoading(true);
     setInheritanceAiSummary("");
     setInheritanceAiError("");
@@ -2497,7 +2495,6 @@ export default function CryptoApp() {
   }
 
   async function generateMemberReport(m) {
-    if (!anthropicKey) { setMemberAiError("Add Anthropic API key in Settings first."); return; }
     setMemberAiLoading(true);
     setMemberAiError("");
 
