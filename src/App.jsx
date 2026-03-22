@@ -6646,9 +6646,10 @@ ${inheritanceAiSummary?`<h2>AI Executive Summary</h2><div class="ai">${inheritan
                 { label: "$5M",    price: 5000000,      sub: "hyperbitcoinization" },
               ];
 
-              // BTC qty per beneficiary: inherited + their own holdings
-              const jBtcQty   = jorgeHoldings.BTC || 0;
-              // Non-BTC value of Jorge's estate at current prices (alts kept constant in projection)
+              // BTC qty in estate: Jorge's direct BTC + iTrust Capital's BTC (Roth IRA — scales with price)
+              const itrustBtcQty = itrustMember?.holdings?.BTC || 0;
+              const jBtcQty = (jorgeHoldings.BTC || 0) + itrustBtcQty;
+              // Non-BTC value of estate at current prices (alts kept constant in projection)
               const estateNonBtcUSD = totalEstateUSD - jBtcQty * BTC_PRICE;
 
               // For each member: total BTC they'd hold (inherited from Jorge + own)
