@@ -20,5 +20,8 @@ service cloud.firestore {
     match /subscriptions/{doc} {
       allow read, write: if true;
     }
+    match /reports/{doc} {
+      allow read, write: if true;
+    }
   }
 }

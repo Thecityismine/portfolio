@@ -2353,6 +2353,8 @@ export default function CryptoApp() {
   const [inheritanceAiSummary, setInheritanceAiSummary] = useState("");
   const [inheritanceAiLoading, setInheritanceAiLoading] = useState(false);
   const [inheritanceAiError, setInheritanceAiError] = useState("");
+  const [inheritanceReportSaving, setInheritanceReportSaving] = useState(false);
+  const [inheritanceReportSavedYear, setInheritanceReportSavedYear] = useState(null);
   const [simBtcPrice, setSimBtcPrice] = useState(500000); // Generational Wealth Simulator scenario price
   const [inheritanceSaving, setInheritanceSaving] = useState(false);
   const [inheritanceSaveError, setInheritanceSaveError] = useState("");
@@ -6200,7 +6202,7 @@ export default function CryptoApp() {
             return total < 99.9;
           }).map(groupLabel);
 
-          function generateInheritancePDF() {
+          function buildReportHTML() {
             const pieSlices = beneficiaryTotals.filter(b => b.inheritedUSD > 0);
             const pieTotal = pieSlices.reduce((s, b) => s + b.inheritedUSD, 0);
             // SVG donut pie chart
@@ -6408,9 +6410,23 @@ ${jorgeCoins.filter(c=>c!=="BTC"&&c!=="ETH"&&(jorgeHoldings[c]||0)*(COIN_PRICES[
 
 <div class="disc">This document was prepared by the Skyline Digital family portfolio tracker on ${reportDate}. It is for informational and estate planning reference only and does not constitute legal or financial advice. Please consult a qualified estate planning attorney and licensed tax advisor before making any distribution or investment decisions.</div>
 </body></html>`;
+            return html;
+          }
+          function generateInheritancePDF() {
+            const html = buildReportHTML();
             const win = window.open("", "_blank", "width=900,height=720");
             win.document.write(html); win.document.close(); win.focus();
             setTimeout(() => win.print(), 500);
+          }
+          async function saveInheritanceReport() {
+            setInheritanceReportSaving(true);
+            try {
+              const html = buildReportHTML();
+              const year = new Date().getFullYear().toString();
+              await fsSet("reports", year, { html, savedAt: new Date().toISOString(), year });
+              setInheritanceReportSavedYear(year);
+            } catch(e) { alert("Save failed: " + e.message); }
+            setInheritanceReportSaving(false);
           }
 
           return (
@@ -6756,15 +6772,32 @@ ${jorgeCoins.filter(c=>c!=="BTC"&&c!=="ETH"&&(jorgeHoldings[c]||0)*(COIN_PRICES[
                       style={{ background: "linear-gradient(135deg,#0d1b3e,#1a2f5e)", border: "1px solid #2979ff44", borderRadius: 10, padding: "8px 14px", fontSize: 11, fontWeight: 700, color: "#4d8aff", cursor: "pointer", opacity: inheritanceAiLoading ? 0.6 : 1 }}>
                       {inheritanceAiLoading ? "Generating…" : "✦ Generate"}
                     </button>
-                    {inheritanceAiSummary && (
+                    {inheritanceAiSummary && (<>
                       <button onClick={generateInheritancePDF}
                         style={{ background: "linear-gradient(135deg,#1a0d0d,#3a1a00)", border: "1px solid #f7931a44", borderRadius: 10, padding: "8px 14px", fontSize: 11, fontWeight: 700, color: "#f7931a", cursor: "pointer" }}>
                         ↓ Export PDF
                       </button>
-                    )}
+                      <button onClick={saveInheritanceReport} disabled={inheritanceReportSaving}
+                        style={{ background: "linear-gradient(135deg,#0d1a0d,#0f2e1a)", border: "1px solid #22c55e44", borderRadius: 10, padding: "8px 14px", fontSize: 11, fontWeight: 700, color: "#22c55e", cursor: "pointer", opacity: inheritanceReportSaving ? 0.6 : 1 }}>
+                        {inheritanceReportSaving ? "Saving…" : "🔗 Save & Share"}
+                      </button>
+                    </>)}
                   </div>
                 </div>
                 {inheritanceAiError && <div style={{ fontSize: 11, color: "#ff6b6b", marginBottom: 8 }}>{inheritanceAiError}</div>}
+                {inheritanceReportSavedYear && (() => {
+                  const url = `${window.location.origin}/api/report?year=${inheritanceReportSavedYear}`;
+                  return (
+                    <div style={{ background: "#0a1a0a", border: "1px solid #22c55e33", borderRadius: 10, padding: "12px 14px", marginBottom: 10, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <div style={{ fontSize: 10, color: "#22c55e", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", flexShrink: 0 }}>Saved {inheritanceReportSavedYear}</div>
+                      <div style={{ flex: 1, fontSize: 11, color: "#4d8aff", fontFamily: "monospace", wordBreak: "break-all", minWidth: 0 }}>{url}</div>
+                      <button onClick={() => navigator.clipboard.writeText(url)}
+                        style={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: 6, padding: "4px 10px", fontSize: 10, color: "#aaa", cursor: "pointer", flexShrink: 0 }}>Copy</button>
+                      <a href={url} target="_blank" rel="noreferrer"
+                        style={{ background: "#1a1a1a", border: "1px solid #333", borderRadius: 6, padding: "4px 10px", fontSize: 10, color: "#aaa", cursor: "pointer", textDecoration: "none", flexShrink: 0 }}>Open</a>
+                    </div>
+                  );
+                })()}
                 {inheritanceAiSummary
                   ? <div style={{ fontSize: 12, color: "#aaa", lineHeight: 1.8, whiteSpace: "pre-wrap" }}>{inheritanceAiSummary}</div>
                   : !inheritanceAiLoading && <div style={{ fontSize: 11, color: "#2a2a2a", textAlign: "center", padding: "20px 0" }}>Press Generate to create a professional executive summary for the executor.</div>
