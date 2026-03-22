@@ -6,8 +6,9 @@ export default async function handler(req, res) {
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const cmcKey = req.headers['x-cmc-key'];
-  if (!cmcKey) return res.status(400).json({ error: 'Missing CoinMarketCap API key' });
+  // Prefer server-side env var; fall back to client-supplied header during transition
+  const cmcKey = process.env.CMC_API_KEY || req.headers['x-cmc-key'];
+  if (!cmcKey) return res.status(400).json({ error: 'CMC API key not configured' });
 
   const symbols = [
     'BTC','ETH','ADA','XRP','LTC','EOS','ZEC','BAT','DOT','CRV',
