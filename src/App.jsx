@@ -2455,8 +2455,10 @@ export default function CryptoApp() {
     setInheritanceAiSummary("");
     setInheritanceAiError("");
     const jorgeCoins = Object.keys(jorgeHoldings).filter(c => jorgeHoldings[c] > 0.00001);
-    // Exclude itrust — it is a Roth IRA account, not a beneficiary person
-    const beneficiaries = MEMBERS.filter(m => m.id !== "jorge" && m.id !== "itrust");
+    // Only include selected beneficiaries (stored in inheritanceBeneficiaryIds), exclude itrust
+    const allNonJorgeAi = MEMBERS.filter(m => m.id !== "jorge" && m.id !== "itrust");
+    const selectedIds = inheritanceBeneficiaryIds ?? allNonJorgeAi.map(m => m.id);
+    const beneficiaries = allNonJorgeAi.filter(m => selectedIds.includes(m.id));
     const itrustMember = MEMBERS.find(m => m.id === "itrust");
     const itrustUSDVal = itrustMember?.usd || 0;
     const beneficiaryData = beneficiaries.map(m => {
@@ -6240,7 +6242,7 @@ td{padding:8px 12px;border-bottom:1px solid #f5f5f5;color:#333}tr:last-child td{
 .ai-section-title{font-size:9px;font-weight:700;color:#999;letter-spacing:.14em;text-transform:uppercase;font-family:Arial,sans-serif;margin:20px 0 8px;padding-bottom:4px;border-bottom:1px solid #ebebeb}
 .ai-para{margin-bottom:14px}
 .disc{margin-top:48px;padding-top:16px;border-top:1px solid #eee;font-size:10px;color:#bbb;line-height:1.6;font-family:Arial,sans-serif}
-@media print{body{padding:32px 40px}@page{margin:1.5cm;size:letter}}
+@media print{body{padding:32px 40px}@page{size:letter;margin:0}}
 </style></head><body>
 <div class="header">
   <div>
@@ -6255,11 +6257,7 @@ td{padding:8px 12px;border-bottom:1px solid #f5f5f5;color:#333}tr:last-child td{
   <div class="meta-item"><div class="meta-label">Executor</div><div class="meta-value" style="font-size:13px">${executor?.name || "—"}</div></div>
   <div class="meta-item"><div class="meta-label">Report Date</div><div class="meta-value" style="font-size:12px">${reportDate}</div></div>
 </div>
-<h2>Estate Holdings — Jorge Medina</h2>
-<table><thead><tr><th>Asset</th><th>Quantity</th><th>Value (USD)</th><th>% of Estate</th></tr></thead><tbody>
-${jorgeCoins.map(c=>`<tr><td class="td-bold">${c}</td><td style="color:#666">${(jorgeHoldings[c]||0).toFixed(6)}</td><td class="td-accent">${fmtFull((jorgeHoldings[c]||0)*(COIN_PRICES[c]||0))}</td><td style="color:#888">${totalEstateUSD>0?(((jorgeHoldings[c]||0)*(COIN_PRICES[c]||0))/totalEstateUSD*100).toFixed(1)+"%" :"—"}</td></tr>`).join("")}
-${itrustUSD>0?`<tr style="background:#fffcf5"><td class="td-bold">iTrust Capital <span style="font-weight:400;color:#aaa;font-size:11px">(Roth IRA → Anseli)</span></td><td style="color:#aaa">—</td><td class="td-accent">${fmtFull(itrustUSD)}</td><td style="color:#888">${totalEstateUSD>0?(itrustUSD/totalEstateUSD*100).toFixed(1)+"%":"—"}</td></tr>`:""}
-</tbody></table>
+${inheritanceAiSummary?`<h2>Executive Summary</h2><div class="ai-section">${cleanAiSummary.split(/\n{2,}/).map(p=>{const t=p.trim();if(!t)return"";if(t===t.toUpperCase()&&t.length>3&&t.length<80)return`<div class="ai-section-title">${t}</div>`;return`<div class="ai-para">${t}</div>`;}).join("")}</div>`:""}
 <h2>Inheritance Allocation</h2>
 <div class="charts-row">
   <div><svg width="280" height="280" viewBox="0 0 300 300">${piePaths}<text x="150" y="143" text-anchor="middle" font-size="10" fill="#bbb" font-family="Arial,sans-serif" letter-spacing="1">ESTATE</text><text x="150" y="163" text-anchor="middle" font-size="15" font-weight="700" fill="#1a1a1a" font-family="Georgia,serif">${fmtFull(totalEstateUSD)}</text></svg></div>
@@ -6270,7 +6268,11 @@ ${itrustUSD>0?`<tr style="background:#fffcf5"><td class="td-bold">iTrust Capital
 ${beneficiaryTotals.map(b=>`<tr><td class="td-bold">${b.name}</td><td>${b.inheritedCoins.map(x=>`<span class="pill">${x.coin} ${x.pct}%</span>`).join("")}</td><td class="td-accent">${fmtFull(b.inheritedUSD)}</td><td style="color:#666">${fmtFull(b.ownUSD)}</td><td class="td-bold">${fmtFull(b.inheritedUSD+b.ownUSD)}</td></tr>`).join("")}
 </tbody></table>
 ${inheritanceInstructions?`<h2>Special Instructions from Estate Owner</h2><div class="instructions">${inheritanceInstructions.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>`:""}
-${inheritanceAiSummary?`<h2>AI Executive Summary</h2><div class="ai-section">${cleanAiSummary.split(/\n{2,}/).map(p=>{const t=p.trim();if(!t)return"";if(t===t.toUpperCase()&&t.length>3&&t.length<80)return`<div class="ai-section-title">${t}</div>`;return`<div class="ai-para">${t}</div>`;}).join("")}</div>`:""}
+<h2>Estate Holdings — Jorge Medina</h2>
+<table><thead><tr><th>Asset</th><th>Quantity</th><th>Value (USD)</th><th>% of Estate</th></tr></thead><tbody>
+${jorgeCoins.map(c=>`<tr><td class="td-bold">${c}</td><td style="color:#666">${(jorgeHoldings[c]||0).toFixed(6)}</td><td class="td-accent">${fmtFull((jorgeHoldings[c]||0)*(COIN_PRICES[c]||0))}</td><td style="color:#888">${totalEstateUSD>0?(((jorgeHoldings[c]||0)*(COIN_PRICES[c]||0))/totalEstateUSD*100).toFixed(1)+"%" :"—"}</td></tr>`).join("")}
+${itrustUSD>0?`<tr style="background:#fffcf5"><td class="td-bold">iTrust Capital <span style="font-weight:400;color:#aaa;font-size:11px">(Roth IRA → Anseli)</span></td><td style="color:#aaa">—</td><td class="td-accent">${fmtFull(itrustUSD)}</td><td style="color:#888">${totalEstateUSD>0?(itrustUSD/totalEstateUSD*100).toFixed(1)+"%":"—"}</td></tr>`:""}
+</tbody></table>
 <div class="disc">This document was prepared by the Skyline Digital family portfolio tracker on ${reportDate}. It is for informational and estate planning reference only and does not constitute legal or financial advice. Please consult a qualified estate planning attorney before making any distribution decisions.</div>
 </body></html>`;
             const win = window.open("", "_blank", "width=900,height=720");
