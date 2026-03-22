@@ -6239,11 +6239,17 @@ td{padding:8px 12px;border-bottom:1px solid #f5f5f5;color:#333}tr:last-child td{
 .charts-row{display:flex;gap:32px;align-items:center;margin:8px 0 20px}
 .instructions{background:#fffcf5;border:1px solid #e8c97a;border-left:3px solid #c2880a;border-radius:6px;padding:18px 20px;font-size:12px;line-height:1.85;white-space:pre-wrap;color:#444;font-family:Arial,sans-serif;margin-bottom:4px}
 .ai-section{font-size:13px;line-height:1.95;color:#2a2a2a;font-family:'Georgia',serif}
-.ai-section-title{font-size:9px;font-weight:700;color:#999;letter-spacing:.14em;text-transform:uppercase;font-family:Arial,sans-serif;margin:20px 0 8px;padding-bottom:4px;border-bottom:1px solid #ebebeb}
-.ai-para{margin-bottom:14px}
+.ai-section-title{font-size:11px;font-weight:800;color:#1a1a1a;letter-spacing:.06em;text-transform:uppercase;font-family:Arial,sans-serif;margin:24px 0 8px;padding-bottom:5px;border-bottom:2px solid #1a1a1a;page-break-after:avoid}
+.ai-para{margin-bottom:14px;page-break-inside:avoid}
 .disc{margin-top:48px;padding-top:16px;border-top:1px solid #eee;font-size:10px;color:#bbb;line-height:1.6;font-family:Arial,sans-serif}
-@media print{body{padding:32px 40px}@page{size:letter;margin:0}}
+.page-footer{position:fixed;bottom:0.25in;left:0.75in;font-size:9px;color:#bbb;font-family:Arial,sans-serif;letter-spacing:.06em}
+.alloc-page{page-break-before:always}
+h2{page-break-after:avoid}
+tr{page-break-inside:avoid}
+@page{size:letter;margin:0}
+@media print{body{padding:0.6in 0.75in 0.5in}}
 </style></head><body>
+<div class="page-footer">Skyline Digital &nbsp;·&nbsp; Confidential</div>
 <div class="header">
   <div>
     <div class="trust-name">Skyline Digital</div>
@@ -6257,7 +6263,8 @@ td{padding:8px 12px;border-bottom:1px solid #f5f5f5;color:#333}tr:last-child td{
   <div class="meta-item"><div class="meta-label">Executor</div><div class="meta-value" style="font-size:13px">${executor?.name || "—"}</div></div>
   <div class="meta-item"><div class="meta-label">Report Date</div><div class="meta-value" style="font-size:12px">${reportDate}</div></div>
 </div>
-${inheritanceAiSummary?`<h2>Executive Summary</h2><div class="ai-section">${cleanAiSummary.split(/\n{2,}/).map(p=>{const t=p.trim();if(!t)return"";if(t===t.toUpperCase()&&t.length>3&&t.length<80)return`<div class="ai-section-title">${t}</div>`;return`<div class="ai-para">${t}</div>`;}).join("")}</div>`:""}
+${inheritanceAiSummary?`<div class="ai-section">${cleanAiSummary.split(/\n{2,}/).map(p=>{const t=p.trim();if(!t)return"";if(t===t.toUpperCase()&&t.length>3&&t.length<80)return`<div class="ai-section-title">${t}</div>`;return`<div class="ai-para">${t}</div>`;}).join("")}</div>`:""}
+<div class="alloc-page">
 <h2>Inheritance Allocation</h2>
 <div class="charts-row">
   <div><svg width="280" height="280" viewBox="0 0 300 300">${piePaths}<text x="150" y="143" text-anchor="middle" font-size="10" fill="#bbb" font-family="Arial,sans-serif" letter-spacing="1">ESTATE</text><text x="150" y="163" text-anchor="middle" font-size="15" font-weight="700" fill="#1a1a1a" font-family="Georgia,serif">${fmtFull(totalEstateUSD)}</text></svg></div>
@@ -6267,6 +6274,7 @@ ${inheritanceAiSummary?`<h2>Executive Summary</h2><div class="ai-section">${clea
 <table><thead><tr><th>Beneficiary</th><th>Inherited Assets</th><th>Inherited Value</th><th>Own Holdings</th><th>Combined Total</th></tr></thead><tbody>
 ${beneficiaryTotals.map(b=>`<tr><td class="td-bold">${b.name}</td><td>${b.inheritedCoins.map(x=>`<span class="pill">${x.coin} ${x.pct}%</span>`).join("")}</td><td class="td-accent">${fmtFull(b.inheritedUSD)}</td><td style="color:#666">${fmtFull(b.ownUSD)}</td><td class="td-bold">${fmtFull(b.inheritedUSD+b.ownUSD)}</td></tr>`).join("")}
 </tbody></table>
+</div>
 ${inheritanceInstructions?`<h2>Special Instructions from Estate Owner</h2><div class="instructions">${inheritanceInstructions.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>`:""}
 <h2>Estate Holdings — Jorge Medina</h2>
 <table><thead><tr><th>Asset</th><th>Quantity</th><th>Value (USD)</th><th>% of Estate</th></tr></thead><tbody>
