@@ -2238,26 +2238,26 @@ export default function CryptoApp() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!cmcKey) { setLivePrices({}); setLiveChanges({}); setPriceStatus("static"); return; }
     let cancelled = false;
     const fetchPrices = async () => {
       setPriceStatus("loading");
       try {
-        const res = await fetch("/api/prices", { headers: { "x-cmc-key": cmcKey } });
+        // Key is now server-side — no client header needed
+        const res = await fetch("/api/prices");
         if (cancelled) return;
         if (!res.ok) { setPriceStatus("error"); return; }
         const data = await res.json();
         if (data.error) { setPriceStatus("error"); return; }
-        setLivePrices(data.prices || data);   // backward-compat if old format
+        setLivePrices(data.prices || data);
         setLiveChanges(data.changes || {});
         if (data.market) setLiveMarketData(data.market);
         setPriceStatus("live");
       } catch { if (!cancelled) setPriceStatus("error"); }
     };
     fetchPrices();
-    const interval = setInterval(fetchPrices, 5 * 60 * 1000); // refresh every 5 min
+    const interval = setInterval(fetchPrices, 5 * 60 * 1000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [cmcKey]);
+  }, []);
 
   // Merge static fallback with live prices — live values win
   const COIN_PRICES = { ...STATIC_PRICES, ...livePrices };
