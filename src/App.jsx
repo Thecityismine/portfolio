@@ -5162,7 +5162,11 @@ export default function CryptoApp() {
                 <div style={{ marginBottom: 24 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                     <div style={{ fontSize: 13, fontWeight: 500, color: "#666" }}>Recent Transactions</div>
-                    <span style={{ fontSize: 12, color: "#555" }}>{memberTxs.length} total</span>
+                    <button
+                      onClick={() => { setTxFilter(member.id); setPage("transactions"); }}
+                      style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#00e676", padding: 0, fontWeight: 500 }}>
+                      View all {memberTxs.length} →
+                    </button>
                   </div>
                   <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, overflow: "hidden" }}>
                     {memberTxs.slice(0, 5).map((tx, idx) => renderTxRow(tx, idx, memberTxs.slice(0, 5)))}
