@@ -2975,7 +2975,7 @@ export default function CryptoApp() {
   }, [insightsChartBase, totalUSD]);
 
   const member = selectedMember ? MEMBERS.find(m => m.id === selectedMember) : null;
-  const memberTxs = TRANSACTIONS.filter(t => t.member === member?.id);
+  const memberTxs = TRANSACTIONS.filter(t => t.member === member?.id).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
 
   // Stable chart data for member portfolio page — avoids re-randomizing on every render
   const memberPortfolioChart = useMemo(() => {
