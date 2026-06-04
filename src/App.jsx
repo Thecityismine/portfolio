@@ -5123,7 +5123,7 @@ export default function CryptoApp() {
                         return (
                           <div key={coin}
                             style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "15px 16px", borderBottom: isLast ? "none" : "1px solid #1a1a1a", cursor: "pointer" }}
-                            onClick={() => { setSelectedCoin(coin); setCoinPage("detail"); }}>
+                            onClick={() => { setSelectedCoin(coin); setCoinPage("detail"); window.scrollTo(0, 0); }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                               <div style={{ width: 42, height: 42, borderRadius: "50%", background: `${COIN_COLOR[coin]||"#555"}20`, border: `1.5px solid ${COIN_COLOR[coin]||"#555"}55`, display: "flex", alignItems: "center", justifyContent: "center", color: COIN_COLOR[coin]||"#888", fontWeight: 700, fontSize: 15, flexShrink: 0 }}>{COIN_ICON[coin]||coin.slice(0,2)}</div>
                               <div>
