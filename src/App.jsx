@@ -2154,7 +2154,6 @@ export default function CryptoApp() {
   const [authUser, setAuthUser] = React.useState(undefined); // undefined = loading, null = signed out, object = signed in
   const [page, setPage] = useState("home");
   useLayoutEffect(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0; }, [page]);
-  useLayoutEffect(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0; }, [selectedCoin]);
   const [anthropicKey, setAnthropicKey] = useState("");
   const [anthropicSyncStatus, setAnthropicSyncStatus] = useState("");
   const [cmcKey, setCmcKey] = useState("");
@@ -2265,6 +2264,7 @@ export default function CryptoApp() {
   const ETH_PRICE = COIN_PRICES.ETH || 2400;
   const [selectedMember, setSelectedMember] = useState(null);
   const [selectedCoin, setSelectedCoin] = useState(null);   // coin detail page
+  useLayoutEffect(() => { if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0; }, [selectedCoin]);
   const [coinPage, setCoinPage] = useState("detail");        // "detail" | "transactions"
   const [txOptionsOpen, setTxOptionsOpen] = useState(null);  // tx.id for 3-dot menu
   const [menuOpen, setMenuOpen] = useState(false);
