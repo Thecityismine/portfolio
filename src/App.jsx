@@ -3632,7 +3632,7 @@ export default function CryptoApp() {
                   <div>
                     <div className="lbl" style={{ marginBottom: 6 }}>Exchange</div>
                     <select value={txForm.exchange} onChange={e => setTxField("exchange", e.target.value)}>
-                      {["Coinbase","Kraken","Gemini","Binance","iTrust","Robinhood","Hardware Wallet","Transfer","Other"].map(ex => (
+                      {["Coinbase","Kraken","Gemini","Binance","iTrust","Robinhood","CashApp","Hyperliquid","Aster","Strike","Hardware Wallet","Transfer","Other"].map(ex => (
                         <option key={ex} value={ex}>{ex}</option>
                       ))}
                     </select>
@@ -3928,7 +3928,7 @@ export default function CryptoApp() {
                   <div>
                     <div className="lbl" style={{ marginBottom: 6 }}>Exchange</div>
                     <select value={editForm.exchange} onChange={e => setEditField("exchange", e.target.value)}>
-                      {["Coinbase","Kraken","Gemini","Binance","iTrust","Robinhood","Hardware Wallet","Transfer","Other"].map(ex => (
+                      {["Coinbase","Kraken","Gemini","Binance","iTrust","Robinhood","CashApp","Hyperliquid","Aster","Strike","Hardware Wallet","Transfer","Other"].map(ex => (
                         <option key={ex} value={ex}>{ex}</option>
                       ))}
                     </select>
@@ -5901,7 +5901,7 @@ export default function CryptoApp() {
             })()}
 
             {(() => {
-              const EXCH_COLOR = { Coinbase:"#0052ff", iTrust:"#f7931a", Kraken:"#5741d9", Gemini:"#00dcfa", Binance:"#f0b90b", Transfer:"#888888", DGA:"#22c55e", Uphold:"#56aeff", Other:"#555" };
+              const EXCH_COLOR = { Coinbase:"#0052ff", iTrust:"#f7931a", Kraken:"#5741d9", Gemini:"#00dcfa", Binance:"#f0b90b", Transfer:"#888888", DGA:"#22c55e", Uphold:"#56aeff", CashApp:"#00d632", Hyperliquid:"#00e5ff", Aster:"#ff6b35", Strike:"#7b2fff", Other:"#555" };
               const exchVol = {};
               TRANSACTIONS.forEach(t => {
                 if ((t.usdTotal || 0) > 0) exchVol[t.exchange] = (exchVol[t.exchange] || 0) + t.usdTotal;
