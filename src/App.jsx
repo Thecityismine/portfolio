@@ -3065,6 +3065,9 @@ export default function CryptoApp() {
                 {txIcon} {txLabel}
               </span>
               <span style={{ fontSize: 12, color: "#666" }}>{tx.date} · {tx.exchange}</span>
+              <button
+                style={{ marginLeft: "auto", background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 8, color: "#aaa", cursor: "pointer", fontSize: 18, padding: "4px 10px", lineHeight: 1, fontWeight: 700 }}
+                onClick={e => { e.stopPropagation(); setTxOptionsOpen(tx.id); }}>⋮</button>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 8px" }}>
               {[
