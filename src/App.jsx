@@ -5524,7 +5524,7 @@ export default function CryptoApp() {
                           </span>
                           <span style={{ fontSize: 13, color: "#777" }}>{tx.date} via {tx.exchange}</span>
                           <button
-                            style={{ marginLeft: "auto", background: "none", border: "none", color: "#666", cursor: "pointer", fontSize: 22, padding: "0 4px", lineHeight: 1, fontWeight: 400 }}
+                            style={{ marginLeft: "auto", background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 8, color: "#aaa", cursor: "pointer", fontSize: 18, padding: "4px 10px", lineHeight: 1, fontWeight: 700 }}
                             onClick={() => setTxOptionsOpen(tx.id)}>⋮</button>
                         </div>
                         {/* Detail card */}

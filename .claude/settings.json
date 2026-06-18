@@ -21,7 +21,12 @@
       "Bash(awk 'NR>=12000 && NR<=36836' dist/assets/index-DiZExqXO.js)",
       "Bash(grep -v \"//\")",
       "Bash(awk 'NR>=12000 && NR<=36220' dist/assets/index-DiZExqXO.js)",
-      "Bash(awk 'NR>=36220 && NR<=36836' dist/assets/index-DiZExqXO.js)"
+      "Bash(awk 'NR>=36220 && NR<=36836' dist/assets/index-DiZExqXO.js)",
+      "Bash(sed -i 's/AIzaSyCYkrWjnppZkZqv0EuR9Ur_X8xn73w0ScE/your-firebase-api-key/g' README.md)",
+      "Bash(sed -n '70,80p' README.md)",
+      "Read(//c/Users/gmedi/Dropbox/22. APPS/portfolio-app/**)",
+      "Bash(python3 -:*)",
+      "Bash(firebase deploy:*)"
     ]
   }
 }
